@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logo to 3D tests</title>
+<style>
+  :root { --bg: #fff; --text: #1d1d1f; --ok: #1f8a4c; --bad: #c0392b; --muted: #6b6b70; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161618; --text: #ececef; --ok: #4cc884; --bad: #ff7b6b; --muted: #9a9aa2; } }
+  body { margin: 0; padding: 16px 24px; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { font-size: 20px; }
+  .summary { font-size: 16px; font-weight: 600; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  li { margin: 2px 0; } .err { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Logo to 3D — geometry checks</h1>
+<p>Each case traces a small test grid, builds every color's part plus the single stepped body, and checks that the meshes are watertight and have the expected volume.</p>
+<p class="summary" id="summary">Running…</p>
+<ul id="list"></ul>
+<script src="vendor/three.min.js"></script>
+<script src="src/color.js"></script>
+<script src="src/labels.js"></script>
+<script src="src/contours.js"></script>
+<script src="src/mesh.js"></script>
+<script src="src/model.js"></script>
+<script src="tests/tests.js"></script>
+<script>
+  setTimeout(function () {
+    var results;
+    try { results = L3D.tests.run(); } catch (e) { results = [{ name: 'Test run crashed', ok: false, errors: [String(e)] }]; }
+    var failed = results.filter(function (r) { return !r.ok; });
+    var summary = document.getElementById('summary');
+    summary.textContent = failed.length ? failed.length + ' of ' + results.length + ' checks failed' : 'All ' + results.length + ' checks passed';
+    summary.className = 'summary ' + (failed.length ? 'bad' : 'ok');
+    var list = document.getElementById('list');
+    failed.concat(results.filter(function (r) { return r.ok; })).forEach(function (r) {
+      var li = document.createElement('li');
+      li.innerHTML = '<span class="' + (r.ok ? 'ok">✓' : 'bad">✗') + '</span> ';
+      li.appendChild(document.createTextNode(r.name));
+      if (r.errors.length) {
+        var e = document.createElement('div');
+        e.className = 'err';
+        e.textContent = r.errors.join('; ');
+        li.appendChild(e);
+      }
+      list.appendChild(li);
+    });
+  }, 0);
+</script>
+</body>
+</html>

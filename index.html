@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logo to 3D</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <h1>Logo to 3D</h1>
+  <p>Turn a logo or icon with a few colors into a 3D print, one part per color.</p>
+</header>
+
+<main class="layout">
+  <section class="col">
+    <div class="panel">
+      <div class="panel-head">
+        <h2><span class="step">1</span> Image</h2>
+        <div class="seg" id="viewToggle">
+          <button type="button" data-view="original" class="on">Original</button>
+          <button type="button" data-view="mapped">Mapped</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="imageCanvas" class="image-canvas"></canvas>
+        <div class="drop-hint" id="dropHint">
+          <p><strong>Drop an image here</strong></p>
+          <label class="btn primary">Choose image…
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg" hidden>
+          </label>
+          <p class="muted">PNG, JPG, WebP or SVG. Logos with flat colors work best.</p>
+        </div>
+        <canvas id="loupe" class="loupe" width="96" height="120" hidden></canvas>
+      </div>
+      <div class="row-between">
+        <p class="hint" id="pickHint">Load an image, then click it to pick each color for the model.</p>
+        <label class="btn small" id="replaceBtn" hidden>Replace image…
+          <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg" hidden>
+        </label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="step">2</span> Colors</h2>
+      <p class="muted" id="paletteEmpty">No colors yet. Click the image to pick the colors you want to print. Every pixel will use the closest picked color.</p>
+      <ul class="palette" id="palette"></ul>
+    </div>
+
+    <div class="panel">
+      <h2><span class="step">3</span> Shape</h2>
+      <div class="mode" role="radiogroup">
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="flat" checked>
+          <span><strong>Flat multi-color</strong><br><span class="muted">Every color has the same thickness. For printers that switch filament automatically (AMS, MMU, tool changers).</span></span>
+        </label>
+        <label class="mode-opt">
+          <input type="radio" name="mode" value="layered">
+          <span><strong>Layered heights</strong><br><span class="muted">Each color gets its own height. Works on a single-extruder printer by changing filament at set heights.</span></span>
+        </label>
+      </div>
+
+      <div class="fields">
+        <label class="field" data-show="flat">Thickness
+          <span class="unit"><input type="number" id="thickness" min="0.2" step="0.2" value="2"> mm</span>
+        </label>
+        <label class="field" data-show="layered">Layer height
+          <span class="unit"><input type="number" id="layerHeight" min="0.04" step="0.04" value="0.2"> mm</span>
+        </label>
+        <label class="field">Width
+          <span class="unit"><input type="number" id="widthMm" min="5" step="1" value="80"> mm</span>
+        </label>
+        <div class="field readout">Height <span id="heightMm">–</span></div>
+        <label class="field">Detail
+          <select id="detail">
+            <option value="0.1">Fine (0.1 mm)</option>
+            <option value="0.15" selected>Normal (0.15 mm)</option>
+            <option value="0.25">Coarse (0.25 mm)</option>
+            <option value="0.4">Draft (0.4 mm)</option>
+          </select>
+        </label>
+        <label class="field">Remove specks under
+          <span class="unit"><input type="number" id="speck" min="0" step="0.1" value="0.3"> mm²</span>
+        </label>
+        <label class="field check"><input type="checkbox" id="smooth" checked> Smooth edges</label>
+      </div>
+
+      <h3>Base plate</h3>
+      <div class="fields">
+        <label class="field">Shape
+          <select id="baseType">
+            <option value="none" selected>None</option>
+            <option value="shape">Under the logo</option>
+            <option value="rect">Rectangle</option>
+          </select>
+        </label>
+        <label class="field" data-base>Thickness
+          <span class="unit"><input type="number" id="baseThickness" min="0.2" step="0.2" value="1"> mm</span>
+        </label>
+        <label class="field" data-base>Color
+          <select id="baseColor"></select>
+        </label>
+      </div>
+      <p class="muted small" data-show="layered">In layered mode, color heights are measured from the top of the base plate.</p>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="panel viewer-panel">
+      <div class="panel-head">
+        <h2>Preview</h2>
+        <span class="stats" id="stats"></span>
+      </div>
+      <div class="viewer" id="viewer">
+        <div class="viewer-msg" id="viewerMsg">The 3D model appears here once you've picked a color.</div>
+        <div class="busy" id="busy" hidden>Building…</div>
+      </div>
+      <p class="muted small">Drag to rotate · scroll to zoom · right-drag to pan</p>
+    </div>
+
+    <div class="panel">
+      <h2><span class="step">4</span> Export</h2>
+      <div class="warnings" id="warnings"></div>
+      <div class="exports">
+        <button type="button" class="btn primary" id="export3mf" disabled>3MF (all colors)</button>
+        <button type="button" class="btn" id="exportZip" disabled>STL per color (.zip)</button>
+        <button type="button" class="btn" id="exportStl" disabled>STL single body</button>
+      </div>
+      <p class="muted small">
+        <strong>Multi-color printers:</strong> open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.
+        <strong>Single extruder:</strong> use the single-body STL with the filament changes below.
+      </p>
+      <div id="swapsBox" hidden>
+        <h3>Filament changes</h3>
+        <ol class="swaps" id="swaps"></ol>
+        <p class="muted small">In your slicer, add a filament change (or pause) at the first layer above each height.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="vendor/fflate.min.js"></script>
+<script src="src/color.js"></script>
+<script src="src/labels.js"></script>
+<script src="src/contours.js"></script>
+<script src="src/mesh.js"></script>
+<script src="src/model.js"></script>
+<script src="src/export.js"></script>
+<script src="src/raster.js"></script>
+<script src="src/viewer.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
