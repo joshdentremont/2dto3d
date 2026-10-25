@@ -1,0 +1,23 @@
+# Runs Logo to 3D behind an existing Traefik instance.
+# Copy .env.example to .env and set APP_HOST (and the Traefik names if yours differ).
+services:
+  logo-to-3d:
+    build: .
+    image: logo-to-3d:latest
+    container_name: logo-to-3d
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.http.routers.logo-to-3d.rule=Host(`${APP_HOST:?Set APP_HOST in .env}`)"
+      - "traefik.http.routers.logo-to-3d.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.logo-to-3d.tls=true"
+      - "traefik.http.routers.logo-to-3d.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.services.logo-to-3d.loadbalancer.server.port=80"
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}

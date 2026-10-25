@@ -13,6 +13,28 @@ The libraries it needs are bundled in `vendor/`.
 
 To check that the geometry code works, open `tests.html`. It should report that all checks passed.
 
+## Running with Docker behind Traefik
+
+The image is `nginx:alpine` serving the files as they are, on port 80 inside the container.
+
+1. Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want.
+2. Check the three Traefik names against your Traefik setup and change them if yours differ:
+   - `TRAEFIK_NETWORK`: the Docker network Traefik is attached to;
+   - `TRAEFIK_ENTRYPOINT`: the HTTPS entrypoint (default `websecure`);
+   - `TRAEFIK_CERTRESOLVER`: the certificate resolver (default `letsencrypt`).
+3. Start it:
+
+   ```sh
+   docker compose up -d --build
+   ```
+
+The container joins the existing Traefik network, and Traefik routes `https://APP_HOST` to it
+using the labels in `docker-compose.yml`. No ports are published on the host.
+
+If your Traefik uses a wildcard or default certificate instead of a resolver, delete the
+`tls.certresolver` label line in `docker-compose.yml`. After changing the app, run
+`docker compose up -d --build` again.
+
 ## How to use it
 
 1. **Image.** Drop an image onto the panel or choose one with the button. PNG, JPG, WebP and SVG
@@ -85,6 +107,8 @@ To check that the geometry code works, open `tests.html`. It should report that 
 | `src/viewer.js` | three.js 3D preview |
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |
 | `vendor/` | three.js r147, OrbitControls and fflate (MIT, see `vendor/LICENSES.md`) |
+| `Dockerfile`, `nginx.conf` | Container image: nginx serving the app |
+| `docker-compose.yml`, `.env.example` | Runs the container behind an existing Traefik |
 
 ### How the geometry stays printable
 
