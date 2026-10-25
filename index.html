@@ -49,14 +49,10 @@
 
     <div class="panel">
       <h2><span class="step">3</span> Shape</h2>
-      <div class="mode" role="radiogroup">
+      <div class="mode">
         <label class="mode-opt">
-          <input type="radio" name="mode" value="flat" checked>
-          <span><strong>Flat multi-color</strong><br><span class="muted">Every color has the same thickness. For printers that switch filament automatically (AMS, MMU, tool changers).</span></span>
-        </label>
-        <label class="mode-opt">
-          <input type="radio" name="mode" value="layered">
-          <span><strong>Layered heights</strong><br><span class="muted">Each color gets its own height. Works on a single-extruder printer by changing filament at set heights.</span></span>
+          <input type="checkbox" id="perColor">
+          <span><strong>Different height per color</strong><br><span class="muted">Raise each color to its own height for a stepped look. Needed to print the colors on a single-extruder printer. When off, every color has the same thickness.</span></span>
         </label>
       </div>
 
@@ -101,14 +97,14 @@
           <select id="baseColor"></select>
         </label>
       </div>
-      <p class="muted small" data-show="layered">In layered mode, color heights are measured from the top of the base plate.</p>
+      <p class="muted small" data-show="layered">Color heights are measured from the top of the base plate.</p>
     </div>
   </section>
 
   <section class="col">
     <div class="panel viewer-panel">
       <div class="panel-head">
-        <h2>Preview</h2>
+        <h2><span class="step">4</span> Preview</h2>
         <span class="stats" id="stats"></span>
       </div>
       <div class="viewer" id="viewer">
@@ -119,21 +115,29 @@
     </div>
 
     <div class="panel">
-      <h2><span class="step">4</span> Export</h2>
+      <h2><span class="step">5</span> Export</h2>
       <div class="warnings" id="warnings"></div>
-      <div class="exports">
-        <button type="button" class="btn primary" id="export3mf" disabled>3MF (all colors)</button>
-        <button type="button" class="btn" id="exportZip" disabled>STL per color (.zip)</button>
-        <button type="button" class="btn" id="exportStl" disabled>STL single body</button>
+      <div class="export-group">
+        <h3>Multi-color printer</h3>
+        <p class="muted small">For AMS, MMU and tool changers. Open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.</p>
+        <div class="exports">
+          <button type="button" class="btn primary" id="export3mf" disabled>3MF (all colors)</button>
+          <button type="button" class="btn primary" id="exportZip" disabled>STL per color (.zip)</button>
+        </div>
       </div>
-      <p class="muted small">
-        <strong>Multi-color printers:</strong> open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.
-        <strong>Single extruder:</strong> use the single-body STL with the filament changes below.
-      </p>
-      <div id="swapsBox" hidden>
-        <h3>Filament changes</h3>
-        <ol class="swaps" id="swaps"></ol>
-        <p class="muted small">In your slicer's layer preview, go to each layer listed and add a filament change (or pause) there. The heights are the top of that layer, as shown on the slicer's layer slider.</p>
+      <div class="export-group">
+        <h3>Single extruder</h3>
+        <p class="muted small" id="singleOff">Turn on <strong>Different height per color</strong> in step 3 to print the colors with one extruder. Each color then shows on top where it is highest, and you change filament at set layers.</p>
+        <div id="singleOn" hidden>
+          <p class="muted small">Print the single body and change filament at the layers below.</p>
+          <div class="exports">
+            <button type="button" class="btn primary" id="exportStl" disabled>STL (single body)</button>
+          </div>
+          <div id="swapsBox" hidden>
+            <ol class="swaps" id="swaps"></ol>
+            <p class="muted small">In your slicer's layer preview, go to each layer listed and add a filament change (or pause) there. The heights are the top of that layer, as shown on the slicer's layer slider.</p>
+          </div>
+        </div>
       </div>
     </div>
   </section>

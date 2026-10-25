@@ -25,11 +25,11 @@ To check that the geometry code works, open `tests.html`. It should report that 
      exported files can match the filament you actually own.
    - Tick **No material** for colors that should be left empty, such as the white background
      of a JPG. Transparent pixels are always empty.
-3. **Shape.** Pick a mode:
-   - **Flat multi-color.** Every color has the same thickness. This is for printers that change
-     filament automatically (Bambu AMS, Prusa MMU/XL, tool changers).
-   - **Layered heights.** Each color gets its own height, so a printer with one extruder can
-     print the colors by changing filament at set heights. Heights snap to the layer height.
+3. **Shape.**
+   - By default every color has the same **Thickness**, giving a flat model.
+   - Tick **Different height per color** to raise each color to its own height, for a stepped
+     look. Heights snap to the layer height. This is also what makes single-extruder color
+     printing possible (see Export).
 
    Other settings:
    - **Width** sets the size of the model.
@@ -38,17 +38,20 @@ To check that the geometry code works, open `tests.html`. It should report that 
    - **Remove specks** cleans up noise from compressed images.
    - **Base plate** (optional) adds a backing under the logo or a full rectangle, in a color
      you choose.
-4. **Export.**
-   - **3MF (all colors)**: one object made of one part per color, each named after its color.
-   - **STL per color (.zip)**: one STL per color, all sharing the same coordinates.
-   - **STL single body**: the whole model as one stepped solid, for single-extruder printing.
-
-The preview panel shows the size and triangle count, and confirms the model is **watertight**
-(fully closed, which slicers need).
+4. **Preview.** Check the 3D model: drag to rotate, scroll to zoom, right-drag to pan. The
+   panel shows the size and triangle count, and confirms the model is **watertight** (fully
+   closed, which slicers need).
+5. **Export.** Pick the group that matches your printer.
+   - **Multi-color printer** (works with flat or stepped models):
+     - **3MF (all colors)**: one object made of one part per color, each named after its color.
+     - **STL per color (.zip)**: one STL per color, all sharing the same coordinates.
+   - **Single extruder** (only when *Different height per color* is on):
+     - **STL (single body)**: the whole model as one stepped solid.
+     - A list of the layers where you change filament.
 
 ## Loading the model into a slicer
 
-**Multi-color printer (flat or layered mode)**
+**Multi-color printer**
 - Open the **3MF**. You should get one object made of several parts, one per color. Then assign
   a filament to each part.
 - Slicers differ in how they read the colors stored in a 3MF. If yours doesn't show the parts
@@ -56,7 +59,7 @@ The preview panel shows the size and triangle count, and confirms the model is *
   slicer asks, choose to load them as a *single object with multiple parts*. The parts line up
   because they share the same coordinates.
 
-**Single extruder (layered mode)**
+**Single extruder (Different height per color on)**
 - Load the **single-body STL**.
 - Use the **Filament changes** list under Export. Each entry is the first layer printed in the
   new color, given as that layer's top height (as shown on the slicer's layer slider). In the

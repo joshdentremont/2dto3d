@@ -17,7 +17,8 @@
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
-    swapsBox: $('swapsBox'), swaps: $('swaps'),
+    swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
+    singleOn: $('singleOn'), singleOff: $('singleOff'),
   };
 
   const S = {
@@ -296,7 +297,7 @@
 
   function readSettings() {
     const s = S.settings;
-    s.mode = document.querySelector('input[name=mode]:checked').value;
+    s.mode = el.perColor.checked ? 'layered' : 'flat';
     s.thickness = Math.max(0.1, +el.thickness.value || 2);
     s.layerHeight = Math.max(0, +el.layerHeight.value || 0);
     s.widthMm = Math.max(5, +el.widthMm.value || 80);
@@ -312,14 +313,16 @@
     const mode = S.settings.mode;
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
+    el.singleOn.hidden = mode !== 'layered';
+    el.singleOff.hidden = mode === 'layered';
   }
 
-  document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => {
+  el.perColor.addEventListener('change', () => {
     readSettings();
     applyVisibility();
     renderPalette();
     schedule(0);
-  }));
+  });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
     el.baseType, el.baseThickness, el.baseColor]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
