@@ -58,9 +58,11 @@ The preview panel shows the size and triangle count, and confirms the model is *
 
 **Single extruder (layered mode)**
 - Load the **single-body STL**.
-- Use the **Filament changes** list under Export. In the slicer's layer preview, add a filament
-  change (called "Change filament", M600, or a pause) at the first layer above each height
-  listed. Each color is visible from above where its height is the highest.
+- Use the **Filament changes** list under Export. Each entry is the first layer printed in the
+  new color, given as that layer's top height (as shown on the slicer's layer slider). In the
+  slicer's layer preview, go to each listed layer and add a filament change there (called
+  "Change filament", M600, or a pause). Each color is visible from above where its height is
+  the highest.
 - Two colors with the same height can't both be shown this way; the app warns you when that
   happens.
 

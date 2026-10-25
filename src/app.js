@@ -448,7 +448,7 @@
         const dot = `<span class="dot" style="background:${sw.color}"></span>`;
         li.innerHTML = k === 0
           ? `Start with ${dot}<strong></strong>`
-          : `At <strong>${sw.z.toFixed(2)} mm</strong>, change to ${dot}<strong></strong>`;
+          : `At the layer at <strong>${sw.z.toFixed(2)} mm</strong>, change to ${dot}<strong></strong>`;
         li.querySelectorAll('strong')[k === 0 ? 0 : 1].textContent = sw.name;
         el.swaps.appendChild(li);
       });

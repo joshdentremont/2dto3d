@@ -51,8 +51,11 @@
     const body = L3D.mesh.buildSolid(g, bodyTop, 0, scale);
 
     // Filament changes for a single extruder: each colour must be loaded while its top
-    // layers print, so colours are stacked in order of height.
+    // layers print, so colours are stacked in order of height. A change is reported as the
+    // first layer printed in the new colour (identified by its top Z, as slicers show it),
+    // i.e. one layer above where the previous colour ends.
     const swaps = [];
+    const nextLayer = z => round(z + lh);
     if (settings.mode === 'layered' && present.length) {
       const order = present.slice().sort((a, b) => zTop[a] - zTop[b]);
       const same = (a, b) => a.filament.toLowerCase() === b.filament.toLowerCase();
@@ -62,7 +65,7 @@
       for (let k = 0; k < order.length; k++) {
         const p = palette[order[k]];
         if (!same(p, cur)) {
-          swaps.push({ z: prevTop, name: p.name, color: p.filament });
+          swaps.push({ z: nextLayer(prevTop), name: p.name, color: p.filament });
           cur = p;
         }
         prevTop = zTop[order[k]];
