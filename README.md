@@ -45,16 +45,10 @@ If your Traefik uses a wildcard or default certificate instead of a resolver, de
 Use this on a server that doesn't run Traefik yet. Ports 80 and 443 must be free, and
 `APP_HOST` must point at the server in DNS so Let's Encrypt can issue the certificate.
 
-1. In `.env`, uncomment `COMPOSE_PROFILES=traefik`. Optionally set `ACME_EMAIL` for
-   certificate notices.
-2. Create the shared network once:
-
-   ```sh
-   docker network create traefik
-   ```
-
-   Use the name from `TRAEFIK_NETWORK` if you changed it.
-3. Start it:
+1. In `.env`, uncomment `COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml`. This
+   adds the Traefik container from `docker-compose.traefik.yml`, and Compose creates the shared
+   network itself. Optionally set `ACME_EMAIL` for certificate notices.
+2. Start it:
 
    ```sh
    docker compose up -d --build
@@ -141,7 +135,8 @@ It only routes containers that opt in with `traefik.enable=true`.
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |
 | `vendor/` | three.js r147, OrbitControls and fflate (MIT, see `vendor/LICENSES.md`) |
 | `Dockerfile`, `nginx.conf` | Container image: nginx serving the app |
-| `docker-compose.yml`, `.env.example` | Runs the container behind your Traefik, or a bundled one |
+| `docker-compose.yml`, `.env.example` | Runs the container behind a Traefik you already run |
+| `docker-compose.traefik.yml` | Optional bundled Traefik, switched on from `.env` |
 
 ### How the geometry stays printable
 

@@ -1,0 +1,35 @@
+# Bundled Traefik, for servers that don't run Traefik yet. Enabled from .env with
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.traefik.yml
+# It uses the same entrypoint and certificate resolver names as the app's labels, and creates
+# the shared network itself.
+services:
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.${TRAEFIK_ENTRYPOINT:-websecure}.address=:443"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.email=${ACME_EMAIL:-}"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - traefik
+
+networks:
+  traefik:
+    external: false
+
+volumes:
+  letsencrypt:
