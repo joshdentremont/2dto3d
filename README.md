@@ -17,23 +17,56 @@ To check that the geometry code works, open `tests.html`. It should report that 
 
 The image is `nginx:alpine` serving the files as they are, on port 80 inside the container.
 
-1. Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want.
-2. Check the three Traefik names against your Traefik setup and change them if yours differ:
+Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want. Then pick one of
+the two setups below. Either way, after changing the app, run `docker compose up -d --build`
+again.
+
+### With a Traefik you already run
+
+1. Check the three Traefik names in `.env` against your Traefik setup, and change them if
+   yours differ:
    - `TRAEFIK_NETWORK`: the Docker network Traefik is attached to;
    - `TRAEFIK_ENTRYPOINT`: the HTTPS entrypoint (default `websecure`);
    - `TRAEFIK_CERTRESOLVER`: the certificate resolver (default `letsencrypt`).
+2. Start it:
+
+   ```sh
+   docker compose up -d --build
+   ```
+
+The container joins your Traefik network, and Traefik routes `https://APP_HOST` to it using
+the labels in `docker-compose.yml`. No ports are published on the host.
+
+If your Traefik uses a wildcard or default certificate instead of a resolver, delete the
+`tls.certresolver` label line in `docker-compose.yml`.
+
+### With the bundled Traefik
+
+Use this on a server that doesn't run Traefik yet. Ports 80 and 443 must be free, and
+`APP_HOST` must point at the server in DNS so Let's Encrypt can issue the certificate.
+
+1. In `.env`, uncomment `COMPOSE_PROFILES=traefik`. Optionally set `ACME_EMAIL` for
+   certificate notices.
+2. Create the shared network once:
+
+   ```sh
+   docker network create traefik
+   ```
+
+   Use the name from `TRAEFIK_NETWORK` if you changed it.
 3. Start it:
 
    ```sh
    docker compose up -d --build
    ```
 
-The container joins the existing Traefik network, and Traefik routes `https://APP_HOST` to it
-using the labels in `docker-compose.yml`. No ports are published on the host.
+The bundled Traefik:
+- redirects HTTP to HTTPS;
+- gets certificates from Let's Encrypt;
+- keeps the certificates in the `letsencrypt` Docker volume, so they survive restarts;
+- reads the Docker socket read-only, to find the app's routing labels.
 
-If your Traefik uses a wildcard or default certificate instead of a resolver, delete the
-`tls.certresolver` label line in `docker-compose.yml`. After changing the app, run
-`docker compose up -d --build` again.
+It only routes containers that opt in with `traefik.enable=true`.
 
 ## How to use it
 
@@ -108,7 +141,7 @@ If your Traefik uses a wildcard or default certificate instead of a resolver, de
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |
 | `vendor/` | three.js r147, OrbitControls and fflate (MIT, see `vendor/LICENSES.md`) |
 | `Dockerfile`, `nginx.conf` | Container image: nginx serving the app |
-| `docker-compose.yml`, `.env.example` | Runs the container behind an existing Traefik |
+| `docker-compose.yml`, `.env.example` | Runs the container behind your Traefik, or a bundled one |
 
 ### How the geometry stays printable
 

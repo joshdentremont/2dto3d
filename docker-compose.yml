@@ -1,5 +1,6 @@
-# Runs Logo to 3D behind an existing Traefik instance.
-# Copy .env.example to .env and set APP_HOST (and the Traefik names if yours differ).
+# Runs Logo to 3D behind Traefik: either one you already run, or the bundled one below.
+# Copy .env.example to .env and set APP_HOST. To use the bundled Traefik, also set
+# COMPOSE_PROFILES=traefik in .env.
 services:
   logo-to-3d:
     build: .
@@ -17,7 +18,37 @@ services:
       - "traefik.http.routers.logo-to-3d.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
       - "traefik.http.services.logo-to-3d.loadbalancer.server.port=80"
 
+  # Optional Traefik, started only when COMPOSE_PROFILES=traefik. It uses the same
+  # entrypoint and certificate resolver names as the labels above.
+  traefik:
+    image: traefik:v3.7
+    container_name: traefik
+    profiles: ["traefik"]
+    restart: unless-stopped
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.${TRAEFIK_ENTRYPOINT:-websecure}.address=:443"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.email=${ACME_EMAIL:-}"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.${TRAEFIK_CERTRESOLVER:-letsencrypt}.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - traefik
+
 networks:
   traefik:
     external: true
     name: ${TRAEFIK_NETWORK:-traefik}
+
+volumes:
+  letsencrypt:
