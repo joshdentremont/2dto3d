@@ -1,4 +1,4 @@
-# Logo to 3D
+# 2D to 3D
 
 A small browser app that turns a logo or icon with a few flat colors into a 3D-printable
 model, with one part per color.
@@ -88,11 +88,17 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Remove specks** cleans up noise from compressed images.
    - **Base plate** (optional) adds a backing under the logo or a full rectangle, in a color
      you choose.
-   - **Round / oval** (under Outline) fills the area around the logo with a color you choose,
-     out to the smallest oval that contains the whole image, or a circle if the image is
-     square. The fill is a normal color part at that color's height. The oval passes through
-     the image's corners, so it is about 1.41 × the image's width and height. Use it for
-     badges, coasters and round keychains. A base plate can still be added underneath.
+   - **Outline** gives the model a shape and fills the empty area inside it with a color you
+     choose. The fill is a normal color part at that color's height, and a base plate can
+     still be added underneath. Use it for badges, coasters and keychains.
+     - **Round / oval:** the smallest oval that contains the whole image, or a circle if the
+       image is square. It passes through the image's corners, so it is about 1.41 × the
+       image's width and height.
+     - **Rounded corners:** the image's own rectangle with its corners rounded to the
+       **Corner radius** you set. The size doesn't change; anything in the corners, logo
+       included, is cut away. A radius of 0 gives sharp corners. The largest radius is half
+       the shorter side, which gives fully rounded ends; bigger values are capped, with a
+       warning.
    - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
      bottom, left or right of the logo, in a color you choose. You set the outer and hole
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within

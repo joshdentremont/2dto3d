@@ -15,7 +15,7 @@
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
-    ovalOn: $('ovalOn'), ovalColor: $('ovalColor'),
+    outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
@@ -36,7 +36,7 @@
       mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true,
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
-      oval: { on: false, colorId: null },
+      outline: { shape: 'none', radius: 5, colorId: null },
     },
   };
   const cache = {};
@@ -287,7 +287,7 @@
   // Colour dropdowns for the base plate and the keychain loop (colours with material only).
   function renderBaseColors() {
     const usable = S.palette.filter(c => !c.none);
-    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop], [el.ovalColor, S.settings.oval]]) {
+    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop], [el.outlineColor, S.settings.outline]]) {
       if (!usable.some(c => c.id === setting.colorId)) setting.colorId = usable.length ? usable[0].id : null;
       select.innerHTML = '';
       for (const c of usable) {
@@ -312,8 +312,9 @@
     s.speckMm2 = Math.max(0, +el.speck.value || 0);
     s.smooth = el.smooth.checked;
     s.base.type = el.baseType.value;
-    s.oval.on = el.ovalOn.checked;
-    s.oval.colorId = +el.ovalColor.value || s.oval.colorId;
+    s.outline.shape = el.outlineShape.value;
+    s.outline.radius = Math.max(0, +el.cornerRadius.value || 0);
+    s.outline.colorId = +el.outlineColor.value || s.outline.colorId;
     s.base.thickness = Math.max(0.1, +el.baseThickness.value || 1);
     s.base.colorId = +el.baseColor.value || s.base.colorId;
     s.loop.on = el.loopOn.checked;
@@ -329,7 +330,7 @@
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
-    document.querySelectorAll('[data-oval]').forEach(n => { n.hidden = !S.settings.oval.on; });
+    document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
   }
@@ -341,7 +342,7 @@
     schedule(0);
   });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
-    el.baseType, el.baseThickness, el.ovalOn, el.ovalColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
+    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -420,12 +421,18 @@
     const loopIdx = S.palette.findIndex(c => c.id === s.loop.colorId && !c.none);
     const loopOn = s.loop.on && loopIdx >= 0;
     const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
-    const ovalIdx = S.palette.findIndex(c => c.id === s.oval.colorId && !c.none);
-    const ovalKey = s.oval.on && ovalIdx >= 0 ? 'oval' + ovalIdx : '';
-    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + ovalKey + '|' + loopKey;
+    const outlineIdx = S.palette.findIndex(c => c.id === s.outline.colorId && !c.none);
+    const outlineOn = s.outline.shape !== 'none' && outlineIdx >= 0;
+    const maxRadius = L3D.model.maxCornerRadius(gw, gh) * scale;
+    const radius = Math.min(s.outline.radius, maxRadius);
+    const outlineKey = outlineOn ? [s.outline.shape, outlineIdx, s.outline.shape === 'rounded' ? radius : ''].join() : '';
+    if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
+      warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
+    }
+    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
     if (cache.traceKey !== traceKey) {
       let grid = { labels: cache.labels, W: gw, H: gh };
-      if (ovalKey) grid = L3D.model.addOval(grid.labels, gw, gh, ovalIdx);
+      if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
       let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, S.palette.length, s);
       cache.loopMissed = false;
       if (loopOn) {

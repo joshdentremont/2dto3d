@@ -117,27 +117,48 @@
       }
     }
 
-    // Round / oval outline: smallest ellipse containing the whole image, filled with colour 0.
-    for (const [shape, rows] of [['wide image', ['..........', '..aaaa....', '..abba....', '..aaaa....', '..........']],
-      ['square image', ['......', '.aa...', '.ab...', '......', '......', '......']]]) {
+    // Outline shapes filled with colour 0: the oval (grows to contain the whole image), and
+    // rounded corners (cut into the image) with no rounding, some, and a radius too big
+    // (capped at fully rounded ends).
+    const images = [['wide image', ['..........', '..aaaa....', '..abba....', '..aaaa....', '..........']],
+      ['square image', ['aa....', 'aa....', '..b...', '......', '......', '......']]];
+    const outlines = [['oval', 0], ['rounded', 0], ['rounded', 2], ['rounded', 100]];
+    for (const [shape, rows] of images) for (const [kind, radius] of outlines) {
       const g0 = grid(rows);
       const K = 0;
-      const t = L3D.model.addOval(g0.labels, g0.W, g0.H, K);
+      const t = L3D.model.addOutline(g0.labels, g0.W, g0.H, K, kind, radius);
+      const label = kind === 'oval' ? 'oval' : `rounded corners r=${radius}`;
       const errors = [];
-      const ox = Math.floor((t.W - g0.W) / 2), oy = Math.floor((t.H - g0.H) / 2);
-      for (let y = 0; y < g0.H; y++) {
-        for (let x = 0; x < g0.W; x++) {
-          const want = g0.labels[y * g0.W + x];
-          const got = t.labels[(y + oy) * t.W + x + ox];
-          if (want >= 0 ? got !== want : got !== K) errors.push(`pixel ${x},${y}: ${got}, expected ${want >= 0 ? want : K}`);
+      if (kind === 'oval') {
+        const ox = Math.floor((t.W - g0.W) / 2), oy = Math.floor((t.H - g0.H) / 2);
+        for (let y = 0; y < g0.H; y++) {
+          for (let x = 0; x < g0.W; x++) {
+            const want = g0.labels[y * g0.W + x];
+            const got = t.labels[(y + oy) * t.W + x + ox];
+            if (want >= 0 ? got !== want : got !== K) errors.push(`pixel ${x},${y}: ${got}, expected ${want >= 0 ? want : K}`);
+          }
         }
+        if (t.labels[0] !== -1 || t.labels[t.W * t.H - 1] !== -1) errors.push('corners of the enlarged grid should be outside the oval');
+        if (shape === 'square image' && t.W !== t.H) errors.push(`square image gave ${t.W} x ${t.H}`);
+      } else {
+        if (t.W !== g0.W || t.H !== g0.H) errors.push(`rounded corners changed the size to ${t.W} x ${t.H}`);
+        // Every pixel keeps its colour, gets the fill, or is cut away (empty).
+        for (let k = 0; k < t.labels.length; k++) {
+          const want = g0.labels[k] >= 0 ? g0.labels[k] : K;
+          if (t.labels[k] !== want && t.labels[k] !== -1) errors.push(`pixel ${k}: ${t.labels[k]}, expected ${want} or cut`);
+        }
+        // The middle of each side is never cut; the corners are cut once there is a radius.
+        const mid = [(g0.W >> 1), (g0.H - 1) * g0.W + (g0.W >> 1), (g0.H >> 1) * g0.W, (g0.H >> 1) * g0.W + g0.W - 1];
+        if (mid.some(k => t.labels[k] < 0)) errors.push('the middle of a side was cut');
+        const corners = [0, g0.W - 1, (g0.H - 1) * g0.W, g0.W * g0.H - 1];
+        const cut = corners.filter(k => t.labels[k] < 0).length;
+        if (radius > 0 && cut !== 4) errors.push(`${cut} of 4 corners cut`);
+        if (radius === 0 && cut !== 0) errors.push('corners cut with radius 0');
       }
-      if (t.labels[0] !== -1 || t.labels[t.W * t.H - 1] !== -1) errors.push('corners of the enlarged grid should be outside the oval');
-      if (shape === 'square image' && t.W !== t.H) errors.push(`square image gave ${t.W} x ${t.H}`);
-      const res = checkGrid(`oval outline, ${shape}`, t, [2, 2.6], true, false);
+      const res = checkGrid(`${label} outline, ${shape}`, t, [2, 2.6], true, false);
       res.errors.push(...errors.slice(0, 5));
       const loop = L3D.keychain.addLoop(t.labels, t.W, t.H, { side: 'top', outerPx: 6, innerPx: 3, label: 1 });
-      if (!loop.connected) res.errors.push('keychain loop did not attach to the oval');
+      if (!loop.connected) res.errors.push('keychain loop did not attach to the outline');
       res.ok = res.errors.length === 0;
       results.push(res);
     }

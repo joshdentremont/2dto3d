@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Logo to 3D</title>
+<title>2D to 3D</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="top">
-  <h1>Logo to 3D</h1>
+  <h1>2D to 3D</h1>
   <p>Turn a logo or icon with a few colors into a 3D print, one part per color.</p>
 </header>
 
@@ -83,12 +83,22 @@
 
       <h3>Outline</h3>
       <div class="fields">
-        <label class="field check" title="The smallest oval that contains the whole image, or a circle for a square image"><input type="checkbox" id="ovalOn"> Round / oval</label>
-        <label class="field" data-oval>Fill color
-          <select id="ovalColor"></select>
+        <label class="field">Shape
+          <select id="outlineShape">
+            <option value="none" selected>None</option>
+            <option value="oval">Round / oval</option>
+            <option value="rounded">Rounded corners</option>
+          </select>
+        </label>
+        <label class="field" data-outline="rounded">Corner radius
+          <span class="unit"><input type="number" id="cornerRadius" min="0" step="0.5" value="5"> mm</span>
+        </label>
+        <label class="field" data-outline="oval rounded">Fill color
+          <select id="outlineColor"></select>
         </label>
       </div>
-      <p class="muted small" data-oval hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color.</p>
+      <p class="muted small" data-outline="oval" hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color.</p>
+      <p class="muted small" data-outline="rounded" hidden>The image's corners are rounded off to this radius, cutting away anything in them. Empty areas inside are filled with this color, at the same height as that color.</p>
 
       <h3>Base plate</h3>
       <div class="fields">

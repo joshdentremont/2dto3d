@@ -12,11 +12,35 @@
     return { labels: Int16Array.from(labels, l => (l < 0 ? paletteLength : l)), W, H };
   }
 
-  // Round / oval outline: fills the empty pixels inside the smallest ellipse containing the
-  // whole image with `fill` (a palette index), so the oval is the same height as that colour.
-  // The ellipse passes through the image's corners, with semi-axes W/√2 and H/√2 (a circle
-  // for a square image). The grid is enlarged to fit it, with the image centred.
-  function addOval(labels, W, H, fill) {
+  // Largest corner radius (pixels) for rounded corners on a W x H image: at this radius the
+  // short sides are fully rounded.
+  function maxCornerRadius(W, H) {
+    return Math.min(W, H) / 2;
+  }
+
+  // Outline shape filled with `fill` (a palette index) wherever the image is empty, so it is
+  // the same height as that colour.
+  //   shape 'oval':    the smallest ellipse containing the image. It passes through the
+  //                    image's corners, with semi-axes W/√2 and H/√2 (a circle if square).
+  //                    The grid is enlarged to fit, with the image centred.
+  //   shape 'rounded': the image's own rectangle with its corners rounded to radiusPx. The
+  //                    corners are cut away, including any of the image that was there.
+  function addOutline(labels, W, H, fill, shape, radiusPx) {
+    if (shape === 'rounded') {
+      const r = Math.max(0, Math.min(radiusPx || 0, maxCornerRadius(W, H)));
+      const out = new Int16Array(W * H);
+      for (let y = 0; y < H; y++) {
+        // Distance into the corner zone, or 0 along the straight sides.
+        const qy = Math.max(Math.abs(y + 0.5 - H / 2) - (H / 2 - r), 0);
+        for (let x = 0; x < W; x++) {
+          const qx = Math.max(Math.abs(x + 0.5 - W / 2) - (W / 2 - r), 0);
+          const l = labels[y * W + x];
+          out[y * W + x] = qx * qx + qy * qy > r * r ? -1 : l >= 0 ? l : fill;
+        }
+      }
+      return { labels: out, W, H };
+    }
+
     const a = W / Math.SQRT2, b = H / Math.SQRT2;
     const NW = Math.ceil(2 * a) + 2, NH = Math.ceil(2 * b) + 2;
     const ox = Math.floor((NW - W) / 2), oy = Math.floor((NH - H) / 2);
@@ -31,7 +55,7 @@
         const l = inImage ? labels[iy * W + ix] : -1;
         // Image pixels are always inside the ellipse; this keeps their colours either way.
         if (l >= 0) out[y * NW + x] = l;
-        else if (dx * dx + dy * dy <= 1) out[y * NW + x] = fill;
+        else if (inImage || dx * dx + dy * dy <= 1) out[y * NW + x] = fill;
       }
     }
     return { labels: out, W: NW, H: NH };
@@ -107,5 +131,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, addOval, build };
+  L3D.model = { traceLabels, addOutline, maxCornerRadius, build };
 })(globalThis.L3D = globalThis.L3D || {});

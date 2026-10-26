@@ -1,4 +1,4 @@
-# Static web server for Logo to 3D. The app is plain HTML/JS, so nginx just serves the files.
+# Static web server for 2D to 3D. The app is plain HTML/JS, so nginx just serves the files.
 FROM nginx:alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf

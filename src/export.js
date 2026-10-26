@@ -8,7 +8,7 @@
     for (const m of meshes) count += m.indices.length / 3;
     const buf = new ArrayBuffer(84 + count * 50);
     const dv = new DataView(buf);
-    const header = 'Logo to 3D';
+    const header = '2D to 3D';
     for (let i = 0; i < header.length; i++) dv.setUint8(i, header.charCodeAt(i));
     dv.setUint32(80, count, true);
     let o = 84;
@@ -45,7 +45,7 @@
     const out = [];
     out.push('<?xml version="1.0" encoding="UTF-8"?>\n',
       '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n',
-      '<metadata name="Application">Logo to 3D</metadata>\n',
+      '<metadata name="Application">2D to 3D</metadata>\n',
       '<metadata name="Title">', esc(name), '</metadata>\n',
       '<resources>\n<basematerials id="1">\n');
     for (const part of parts) out.push(`<base name="${esc(part.name)}" displaycolor="${part.color.toUpperCase()}FF"/>\n`);
