@@ -117,6 +117,31 @@
       }
     }
 
+    // Round / oval outline: smallest ellipse containing the whole image, filled with colour 0.
+    for (const [shape, rows] of [['wide image', ['..........', '..aaaa....', '..abba....', '..aaaa....', '..........']],
+      ['square image', ['......', '.aa...', '.ab...', '......', '......', '......']]]) {
+      const g0 = grid(rows);
+      const K = 0;
+      const t = L3D.model.addOval(g0.labels, g0.W, g0.H, K);
+      const errors = [];
+      const ox = Math.floor((t.W - g0.W) / 2), oy = Math.floor((t.H - g0.H) / 2);
+      for (let y = 0; y < g0.H; y++) {
+        for (let x = 0; x < g0.W; x++) {
+          const want = g0.labels[y * g0.W + x];
+          const got = t.labels[(y + oy) * t.W + x + ox];
+          if (want >= 0 ? got !== want : got !== K) errors.push(`pixel ${x},${y}: ${got}, expected ${want >= 0 ? want : K}`);
+        }
+      }
+      if (t.labels[0] !== -1 || t.labels[t.W * t.H - 1] !== -1) errors.push('corners of the enlarged grid should be outside the oval');
+      if (shape === 'square image' && t.W !== t.H) errors.push(`square image gave ${t.W} x ${t.H}`);
+      const res = checkGrid(`oval outline, ${shape}`, t, [2, 2.6], true, false);
+      res.errors.push(...errors.slice(0, 5));
+      const loop = L3D.keychain.addLoop(t.labels, t.W, t.H, { side: 'top', outerPx: 6, innerPx: 3, label: 1 });
+      if (!loop.connected) res.errors.push('keychain loop did not attach to the oval');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 

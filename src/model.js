@@ -4,11 +4,37 @@
 
   const round = z => Math.round(z * 1e4) / 1e4;
 
-  // Label grid to trace. With a rectangular base plate, empty pixels become an extra label
-  // (index = palette length) so the plate can be built from the same outlines.
-  function traceLabels(labels, paletteLength, settings) {
-    if (settings.base.type !== 'rect') return labels;
-    return Int16Array.from(labels, l => (l < 0 ? paletteLength : l));
+  // Label grid to trace, as { labels, W, H }. With a rectangular base plate, empty pixels
+  // become an extra label (index = palette length) so the plate is built from the same
+  // outlines as the logo.
+  function traceLabels(labels, W, H, paletteLength, settings) {
+    if (settings.base.type !== 'rect') return { labels, W, H };
+    return { labels: Int16Array.from(labels, l => (l < 0 ? paletteLength : l)), W, H };
+  }
+
+  // Round / oval outline: fills the empty pixels inside the smallest ellipse containing the
+  // whole image with `fill` (a palette index), so the oval is the same height as that colour.
+  // The ellipse passes through the image's corners, with semi-axes W/√2 and H/√2 (a circle
+  // for a square image). The grid is enlarged to fit it, with the image centred.
+  function addOval(labels, W, H, fill) {
+    const a = W / Math.SQRT2, b = H / Math.SQRT2;
+    const NW = Math.ceil(2 * a) + 2, NH = Math.ceil(2 * b) + 2;
+    const ox = Math.floor((NW - W) / 2), oy = Math.floor((NH - H) / 2);
+    const cx = ox + W / 2, cy = oy + H / 2;
+    const out = new Int16Array(NW * NH).fill(-1);
+    for (let y = 0; y < NH; y++) {
+      const dy = (y + 0.5 - cy) / b;
+      for (let x = 0; x < NW; x++) {
+        const dx = (x + 0.5 - cx) / a;
+        const ix = x - ox, iy = y - oy;
+        const inImage = ix >= 0 && iy >= 0 && ix < W && iy < H;
+        const l = inImage ? labels[iy * W + ix] : -1;
+        // Image pixels are always inside the ellipse; this keeps their colours either way.
+        if (l >= 0) out[y * NW + x] = l;
+        else if (dx * dx + dy * dy <= 1) out[y * NW + x] = fill;
+      }
+    }
+    return { labels: out, W: NW, H: NH };
   }
 
   // g: result of contours.trace on traceLabels(...).
@@ -81,5 +107,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, build };
+  L3D.model = { traceLabels, addOval, build };
 })(globalThis.L3D = globalThis.L3D || {});

@@ -81,6 +81,15 @@
         <label class="field check"><input type="checkbox" id="smooth" checked> Smooth edges</label>
       </div>
 
+      <h3>Outline</h3>
+      <div class="fields">
+        <label class="field check" title="The smallest oval that contains the whole image, or a circle for a square image"><input type="checkbox" id="ovalOn"> Round / oval</label>
+        <label class="field" data-oval>Fill color
+          <select id="ovalColor"></select>
+        </label>
+      </div>
+      <p class="muted small" data-oval hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color.</p>
+
       <h3>Base plate</h3>
       <div class="fields">
         <label class="field">Shape

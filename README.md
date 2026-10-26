@@ -83,10 +83,16 @@ It only routes containers that opt in with `traefik.enable=true`.
    Other settings:
    - **Width** sets the size of the model.
    - **Detail** is the size of one image pixel in the model.
-   - **Smooth edges** removes pixel staircases.
+   - **Smooth edges** turns pixel staircases into smooth curves, while keeping sharp corners
+     (where two straight edges at least 3 pixels long meet) sharp.
    - **Remove specks** cleans up noise from compressed images.
    - **Base plate** (optional) adds a backing under the logo or a full rectangle, in a color
      you choose.
+   - **Round / oval** (under Outline) fills the area around the logo with a color you choose,
+     out to the smallest oval that contains the whole image, or a circle if the image is
+     square. The fill is a normal color part at that color's height. The oval passes through
+     the image's corners, so it is about 1.41 × the image's width and height. Use it for
+     badges, coasters and round keychains. A base plate can still be added underneath.
    - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
      bottom, left or right of the logo, in a color you choose. You set the outer and hole
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within
@@ -152,5 +158,14 @@ neighboring parts share their edges exactly, with no gaps or overlaps between co
 Where two pixels of the same color touch only at a corner, that corner is split slightly, so
 every outline is a simple polygon. Walls are split at every height where colors meet, so each
 edge is shared by exactly two triangles.
+
+With **Smooth edges** on, each border is smoothed once, before both sides use it, so the
+borders still match exactly:
+1. Each straight run of pixel edges is replaced by its centre point. On a curve, run centres
+   lie very close to the true edge.
+2. Corners between two runs of 3+ pixels are kept as they are. On a pixelated curve, one of
+   any two neighbouring runs is always a single pixel, so this only happens at real corners.
+3. The outline is resampled every half pixel and smoothed with a 2-pixel Gaussian along its
+   length. Each stretch between corners is smoothed on its own.
 
 `tests.html` checks all of this on fixed cases and on random grids.

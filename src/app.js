@@ -15,6 +15,7 @@
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
+    ovalOn: $('ovalOn'), ovalColor: $('ovalColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
@@ -35,6 +36,7 @@
       mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true,
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+      oval: { on: false, colorId: null },
     },
   };
   const cache = {};
@@ -285,7 +287,7 @@
   // Colour dropdowns for the base plate and the keychain loop (colours with material only).
   function renderBaseColors() {
     const usable = S.palette.filter(c => !c.none);
-    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop]]) {
+    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop], [el.ovalColor, S.settings.oval]]) {
       if (!usable.some(c => c.id === setting.colorId)) setting.colorId = usable.length ? usable[0].id : null;
       select.innerHTML = '';
       for (const c of usable) {
@@ -310,6 +312,8 @@
     s.speckMm2 = Math.max(0, +el.speck.value || 0);
     s.smooth = el.smooth.checked;
     s.base.type = el.baseType.value;
+    s.oval.on = el.ovalOn.checked;
+    s.oval.colorId = +el.ovalColor.value || s.oval.colorId;
     s.base.thickness = Math.max(0.1, +el.baseThickness.value || 1);
     s.base.colorId = +el.baseColor.value || s.base.colorId;
     s.loop.on = el.loopOn.checked;
@@ -325,6 +329,7 @@
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
+    document.querySelectorAll('[data-oval]').forEach(n => { n.hidden = !S.settings.oval.on; });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
   }
@@ -336,7 +341,7 @@
     schedule(0);
   });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
-    el.baseType, el.baseThickness, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
+    el.baseType, el.baseThickness, el.ovalOn, el.ovalColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -415,10 +420,13 @@
     const loopIdx = S.palette.findIndex(c => c.id === s.loop.colorId && !c.none);
     const loopOn = s.loop.on && loopIdx >= 0;
     const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
-    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + loopKey;
+    const ovalIdx = S.palette.findIndex(c => c.id === s.oval.colorId && !c.none);
+    const ovalKey = s.oval.on && ovalIdx >= 0 ? 'oval' + ovalIdx : '';
+    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + ovalKey + '|' + loopKey;
     if (cache.traceKey !== traceKey) {
-      let labels = L3D.model.traceLabels(cache.labels, S.palette.length, s);
-      let W = gw, H = gh;
+      let grid = { labels: cache.labels, W: gw, H: gh };
+      if (ovalKey) grid = L3D.model.addOval(grid.labels, gw, gh, ovalIdx);
+      let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, S.palette.length, s);
       cache.loopMissed = false;
       if (loopOn) {
         const r = L3D.keychain.addLoop(labels, W, H, {

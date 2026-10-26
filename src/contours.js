@@ -12,8 +12,16 @@
 
   // How far into a pixel a corner is pulled when pixels only touch diagonally.
   const SPLIT = 0.2;
-  // Douglas-Peucker tolerance, in pixels, used when smoothing.
-  const SMOOTH_TOL = 0.3;
+  // Smoothing. A turn between two straight runs at least this many pixels long is a real
+  // corner and is kept sharp. (On a pixelated curve one of any two neighbouring runs is
+  // always a single pixel, so curves never trigger this.)
+  const CORNER_RUN = 3;
+  // Outlines are resampled every RESAMPLE pixels and smoothed with a Gaussian of
+  // SMOOTH_SIGMA pixels; afterwards points within SIMPLIFY_TOL pixels of a straight line are
+  // dropped.
+  const RESAMPLE = 0.5;
+  const SMOOTH_SIGMA = 2;
+  const SIMPLIFY_TOL = 0.02;
 
   // Directions: 0 = N, 1 = E, 2 = S, 3 = W.
   const DX = [0, 1, 0, -1];
@@ -161,12 +169,8 @@
       let xs = [], ys = [];
       if (closed) {
         if (smooth) {
-          for (let k = 0; k < n; k++) {
-            const k2 = (k + 1) % n;
-            xs.push((cs[2 * k] + cs[2 * k2]) / 2);
-            ys.push((cs[2 * k + 1] + cs[2 * k2 + 1]) / 2);
-          }
-          [xs, ys] = simplifyClosed(xs, ys, SMOOTH_TOL);
+          [xs, ys] = smoothCorners(cs, true, null, null);
+          [xs, ys] = simplifyClosed(xs, ys, SIMPLIFY_TOL);
         } else {
           for (let k = 0; k < n; k++) { xs.push(cs[2 * k]); ys.push(cs[2 * k + 1]); }
           [xs, ys] = dropCollinear(xs, ys, true);
@@ -175,19 +179,17 @@
         for (let k = 0; k < xs.length; k++) ids[k] = addPoint(xs[k], ys[k]);
         return { ids, cs, closed: true, left, right, startV: -1, endV: -1 };
       }
-      xs.push(px[startPid]);
-      ys.push(py[startPid]);
       if (smooth) {
-        for (let k = 0; k < n - 1; k++) {
-          xs.push((cs[2 * k] + cs[2 * k + 2]) / 2);
-          ys.push((cs[2 * k + 1] + cs[2 * k + 3]) / 2);
-        }
+        [xs, ys] = smoothCorners(cs, false, [px[startPid], py[startPid]], [px[endPid], py[endPid]]);
+        [xs, ys] = simplifyOpen(xs, ys, SIMPLIFY_TOL);
       } else {
+        xs.push(px[startPid]);
+        ys.push(py[startPid]);
         for (let k = 1; k < n - 1; k++) { xs.push(cs[2 * k]); ys.push(cs[2 * k + 1]); }
+        xs.push(px[endPid]);
+        ys.push(py[endPid]);
+        [xs, ys] = dropCollinear(xs, ys, false);
       }
-      xs.push(px[endPid]);
-      ys.push(py[endPid]);
-      [xs, ys] = smooth ? simplifyOpen(xs, ys, SMOOTH_TOL) : dropCollinear(xs, ys, false);
       const ids = new Int32Array(xs.length);
       ids[0] = startPid;
       ids[xs.length - 1] = endPid;
@@ -336,6 +338,114 @@
       if ((yk > y) !== (ym > y) && x < (xm - xk) * (y - yk) / (ym - yk) + xk) inside = !inside;
     }
     return inside;
+  }
+
+  // Smooth outline through a chain of pixel corners (flat x,y list, unit steps).
+  // Each straight run of pixel edges is replaced by its centre point, which removes the
+  // staircase; corners between two long runs are kept. The result is resampled and smoothed
+  // with a Gaussian along the outline. Open chains keep their end points p0 / pn fixed.
+  function smoothCorners(cs, closed, p0, pn) {
+    let n = cs.length / 2;
+    let cx = [], cy = [];
+    for (let k = 0; k < n; k++) { cx.push(cs[2 * k]); cy.push(cs[2 * k + 1]); }
+    const edges = closed ? n : n - 1;
+    const dir = k => {
+      const k2 = (k + 1) % n;
+      return (cx[k2] - cx[k]) * 3 + (cy[k2] - cy[k]); // unique per unit direction
+    };
+    // Closed loops: start at a turn so no run wraps around the start.
+    if (closed) {
+      let s = 0;
+      while (s < edges && dir((s - 1 + edges) % edges) === dir(s)) s++;
+      if (s === edges) s = 0;
+      cx = cx.slice(s).concat(cx.slice(0, s));
+      cy = cy.slice(s).concat(cy.slice(0, s));
+    }
+    // Straight runs as [first edge, edge count].
+    const runs = [];
+    for (let k = 0; k < edges;) {
+      const d = dir(k);
+      let j = k + 1;
+      while (j < edges && dir(j) === d) j++;
+      runs.push([k, j - k]);
+      k = j;
+    }
+    let xs = [], ys = [], pinned = [];
+    const push = (x, y, pin) => { xs.push(x); ys.push(y); pinned.push(pin); };
+    if (!closed) push(p0[0], p0[1], true);
+    runs.forEach(([k, len], r) => {
+      const prev = r > 0 ? runs[r - 1] : (closed ? runs[runs.length - 1] : null);
+      if (prev && prev[1] >= CORNER_RUN && len >= CORNER_RUN && runs.length > 1) push(cx[k], cy[k], true);
+      const e = (k + len) % n;
+      push((cx[k] + cx[e]) / 2, (cy[k] + cy[e]) / 2, false);
+    });
+    if (!closed) push(pn[0], pn[1], true);
+
+    // Resample every half pixel. Run centres along a digital straight stretch are exactly
+    // collinear, so without this all the bending piles up where the pixel pattern changes.
+    {
+      const rx = [], ry = [], rp = [];
+      const cnt = xs.length, segs = closed ? cnt : cnt - 1;
+      for (let i = 0; i < segs; i++) {
+        const j = (i + 1) % cnt;
+        const steps = Math.max(1, Math.ceil(Math.hypot(xs[j] - xs[i], ys[j] - ys[i]) / RESAMPLE));
+        rx.push(xs[i]); ry.push(ys[i]); rp.push(pinned[i]);
+        for (let s = 1; s < steps; s++) {
+          rx.push(xs[i] + (xs[j] - xs[i]) * s / steps);
+          ry.push(ys[i] + (ys[j] - ys[i]) * s / steps);
+          rp.push(false);
+        }
+      }
+      if (!closed) { rx.push(xs[cnt - 1]); ry.push(ys[cnt - 1]); rp.push(true); }
+      xs = rx; ys = ry; pinned = rp;
+    }
+
+    gaussianSmooth(xs, ys, pinned, closed, SMOOTH_SIGMA / RESAMPLE);
+    return [xs, ys];
+  }
+
+  // Gaussian smoothing along the outline (sigma in samples). Each stretch between fixed
+  // points is smoothed on its own, using only its own points, so fixed corners stay sharp
+  // and straight edges stay straight.
+  function gaussianSmooth(xs, ys, pinned, closed, sigma) {
+    const n = xs.length;
+    if (n < 3) return;
+    const R = Math.ceil(3 * sigma);
+    const w = [];
+    for (let j = -R; j <= R; j++) w.push(Math.exp(-j * j / (2 * sigma * sigma)));
+    const ox = xs.slice(), oy = ys.slice();
+    const pins = [];
+    for (let i = 0; i < n; i++) if (pinned[i]) pins.push(i);
+
+    if (!pins.length) {
+      // Closed loop with no corners: smooth all the way round.
+      for (let i = 0; i < n; i++) {
+        let sx = 0, sy = 0, sw = 0;
+        for (let j = -R; j <= R; j++) {
+          const k = ((i + j) % n + n) % n, ww = w[j + R];
+          sx += ww * ox[k]; sy += ww * oy[k]; sw += ww;
+        }
+        xs[i] = sx / sw; ys[i] = sy / sw;
+      }
+      return;
+    }
+    for (let p = 0; p < pins.length; p++) {
+      const a = pins[p];
+      let b;
+      if (p + 1 < pins.length) b = pins[p + 1];
+      else if (closed) b = pins[0] + n;
+      else break;
+      for (let i = a + 1; i < b; i++) {
+        let sx = 0, sy = 0, sw = 0;
+        for (let j = -R; j <= R; j++) {
+          const k = i + j;
+          if (k < a || k > b) continue;
+          const kk = k % n, ww = w[j + R];
+          sx += ww * ox[kk]; sy += ww * oy[kk]; sw += ww;
+        }
+        xs[i % n] = sx / sw; ys[i % n] = sy / sw;
+      }
+    }
   }
 
   function dropCollinear(xs, ys, closed) {
