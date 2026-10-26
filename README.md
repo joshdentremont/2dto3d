@@ -87,6 +87,11 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Remove specks** cleans up noise from compressed images.
    - **Base plate** (optional) adds a backing under the logo or a full rectangle, in a color
      you choose.
+   - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
+     bottom, left or right of the logo, in a color you choose. You set the outer and hole
+     diameters. A short tab joins the ring to the logo across small gaps. If nothing is within
+     reach on that side, the loop is left off and the app suggests another side. The loop
+     sits outside the image, so it adds to the size shown in the preview.
 4. **Preview.** Check the 3D model: drag to rotate, scroll to zoom, right-drag to pan. The
    panel shows the size and triangle count, and confirms the model is **watertight** (fully
    closed, which slicers need).
@@ -129,6 +134,7 @@ It only routes containers that opt in with `traefik.enable=true`.
 | `src/contours.js` | Traces color regions into outlines that neighboring colors share exactly |
 | `src/mesh.js` | Builds closed meshes from the outlines; watertight and volume checks |
 | `src/model.js` | Applies the mode, heights and base plate, and works out filament changes |
+| `src/keychain.js` | Adds the keychain loop to the color grid before tracing |
 | `src/export.js` | STL, 3MF and ZIP writers |
 | `src/raster.js` | Image loading, resampling and color sampling (browser only) |
 | `src/viewer.js` | three.js 3D preview |

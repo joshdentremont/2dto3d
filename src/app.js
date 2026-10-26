@@ -15,6 +15,7 @@
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
+    loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
     swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
@@ -33,6 +34,7 @@
     settings: {
       mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true,
       base: { type: 'none', thickness: 1, colorId: null },
+      loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
     },
   };
   const cache = {};
@@ -280,16 +282,19 @@
     setTimeout(() => li.classList.remove('flash'), 900);
   }
 
+  // Colour dropdowns for the base plate and the keychain loop (colours with material only).
   function renderBaseColors() {
     const usable = S.palette.filter(c => !c.none);
-    if (!usable.some(c => c.id === S.settings.base.colorId)) S.settings.base.colorId = usable.length ? usable[0].id : null;
-    el.baseColor.innerHTML = '';
-    for (const c of usable) {
-      const o = document.createElement('option');
-      o.value = c.id;
-      o.textContent = c.name;
-      o.selected = c.id === S.settings.base.colorId;
-      el.baseColor.appendChild(o);
+    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop]]) {
+      if (!usable.some(c => c.id === setting.colorId)) setting.colorId = usable.length ? usable[0].id : null;
+      select.innerHTML = '';
+      for (const c of usable) {
+        const o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        o.selected = c.id === setting.colorId;
+        select.appendChild(o);
+      }
     }
   }
 
@@ -307,12 +312,19 @@
     s.base.type = el.baseType.value;
     s.base.thickness = Math.max(0.1, +el.baseThickness.value || 1);
     s.base.colorId = +el.baseColor.value || s.base.colorId;
+    s.loop.on = el.loopOn.checked;
+    s.loop.side = el.loopSide.value;
+    s.loop.outer = Math.max(4, +el.loopOuter.value || 10);
+    // Keep at least a 1 mm wall around the hole.
+    s.loop.hole = Math.min(Math.max(1, +el.loopHole.value || 5), s.loop.outer - 2);
+    s.loop.colorId = +el.loopColor.value || s.loop.colorId;
   }
 
   function applyVisibility() {
     const mode = S.settings.mode;
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
+    document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
   }
@@ -324,7 +336,7 @@
     schedule(0);
   });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
-    el.baseType, el.baseThickness, el.baseColor]) {
+    el.baseType, el.baseThickness, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -400,11 +412,27 @@
       return;
     }
 
-    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect');
+    const loopIdx = S.palette.findIndex(c => c.id === s.loop.colorId && !c.none);
+    const loopOn = s.loop.on && loopIdx >= 0;
+    const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
+    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + loopKey;
     if (cache.traceKey !== traceKey) {
-      const labels = L3D.model.traceLabels(cache.labels, S.palette.length, s);
-      cache.graph = L3D.contours.trace(labels, gw, gh, { smooth: s.smooth });
+      let labels = L3D.model.traceLabels(cache.labels, S.palette.length, s);
+      let W = gw, H = gh;
+      cache.loopMissed = false;
+      if (loopOn) {
+        const r = L3D.keychain.addLoop(labels, W, H, {
+          side: s.loop.side, outerPx: s.loop.outer / scale, innerPx: s.loop.hole / scale, label: loopIdx,
+        });
+        // A loop that doesn't touch the logo would print as a loose ring, so leave it out.
+        if (r.connected) { labels = r.labels; W = r.W; H = r.H; }
+        cache.loopMissed = !r.connected;
+      }
+      cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
       cache.traceKey = traceKey;
+    }
+    if (loopOn && cache.loopMissed) {
+      warnings.push(`The keychain loop can't reach the logo from the ${s.loop.side}, so it isn't attached. Try another side, or a larger loop.`);
     }
 
     const baseIdx = Math.max(0, S.palette.findIndex(c => c.id === s.base.colorId));

@@ -94,6 +94,29 @@
     const sOk = Array.from(speck).every(l => l === 0);
     results.push({ name: 'speck removal', ok: sOk, errors: sOk ? [] : [Array.from(speck).join()] });
 
+    // Keychain loop on every side, on a solid block and on a "U" whose open side needs a tab.
+    const block = ['..........', '.aaaaaaaa.', '.aaaaaaaa.', '.aaaaaaaa.', '.aaaaaaaa.', '..........'];
+    // A "U" opening upwards, deeper than the loop radius: a top loop can't reach it.
+    const notch = ['..................'].concat(Array(8).fill('.aa............aa.'), ['.aaaaaaaaaaaaaaaa.', '..................']);
+    for (const [shape, rows] of [['block', block], ['U shape', notch]]) {
+      for (const side of ['top', 'bottom', 'left', 'right']) {
+        const g0 = grid(rows);
+        const r = L3D.keychain.addLoop(g0.labels, g0.W, g0.H, { side, outerPx: 8, innerPx: 4, label: 1 });
+        const res = checkGrid(`keychain ${side}, ${shape}`, r, [1.2, 2], true, false);
+        const unreachable = shape === 'U shape' && side === 'top';
+        if (r.connected === unreachable) res.errors.push(unreachable ? 'loop filled the opening' : 'loop not connected');
+        if (!unreachable) {
+          const merged = Int16Array.from(r.labels, l => (l < 0 ? -1 : 0));
+          const polys = L3D.contours.trace(merged, r.W, r.H, { smooth: false }).polys.get(0) || [];
+          const holes = polys.reduce((a, p) => a + p.holes.length, 0);
+          if (polys.length !== 1) res.errors.push(`${polys.length} separate pieces, expected 1`);
+          if (holes !== 1) res.errors.push(`${holes} holes, expected 1`);
+        }
+        res.ok = res.errors.length === 0;
+        results.push(res);
+      }
+    }
+
     return results;
   }
 
