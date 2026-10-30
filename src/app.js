@@ -173,9 +173,10 @@
     }
     const n = S.palette.length;
     S.palette.push({
-      id: S.nextId++, rgb, filament: L3D.color.rgbToHex(rgb), name: 'Color ' + (n + 1),
+      id: S.nextId++, rgb, filament: L3D.color.rgbToHex(rgb), name: '', autoName: true,
       none: false, height: +(1.2 + 0.6 * n).toFixed(2),
     });
+    renumber();
     renderPalette();
     flashRow(S.palette.length - 1);
     schedule(0);
@@ -225,6 +226,13 @@
 
   // ---------- palette ----------
 
+  // Colours still using an automatic name are numbered 1, 2, 3… in list order, skipping
+  // colours the user has renamed, so there are no gaps or duplicates and the newest is last.
+  function renumber() {
+    let n = 0;
+    for (const c of S.palette) if (c.autoName) c.name = 'Color ' + (++n);
+  }
+
   function renderPalette() {
     el.palette.innerHTML = '';
     el.paletteEmpty.hidden = S.palette.length > 0;
@@ -246,7 +254,16 @@
       fil.addEventListener('input', () => { c.filament = fil.value.toUpperCase(); drawImage(); schedule(150); });
       const name = li.querySelector('.name');
       name.value = c.name;
-      name.addEventListener('input', () => { c.name = name.value || 'Color ' + (i + 1); renderBaseColors(); schedule(400); });
+      name.addEventListener('input', () => {
+        // A typed name is kept; clearing it goes back to automatic numbering.
+        c.autoName = !name.value.trim();
+        if (!c.autoName) c.name = name.value;
+        renumber();
+        // Update the other rows' names in place, so this box keeps focus.
+        el.palette.querySelectorAll('.name').forEach((input, k) => { if (input !== name) input.value = S.palette[k].name; });
+        renderBaseColors();
+        schedule(400);
+      });
       const none = li.querySelector('.none');
       none.checked = c.none;
       none.addEventListener('change', () => { c.none = none.checked; renderPalette(); schedule(0); });
@@ -256,6 +273,7 @@
       li.querySelector('.del').addEventListener('click', () => {
         S.palette.splice(i, 1);
         S.hover = -1;
+        renumber();
         renderPalette();
         schedule(0);
       });
