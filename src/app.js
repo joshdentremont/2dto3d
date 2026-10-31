@@ -6,6 +6,7 @@
   const MAX_ORIGINAL = 2048;    // longest side kept for display and picking
   const SAME_COLOR_DE = 3;      // picks closer than this (CIELAB ΔE) select the existing colour
   const CHECK_LIMIT = 1500000;  // skip the watertight check above this many triangles
+  const MIN_FRAME_LIP = 0.4;    // thinnest lip (mm) left at the front of a frame
 
   const $ = id => document.getElementById(id);
   const el = {
@@ -18,8 +19,9 @@
     outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
-    frameLipThickness: $('frameLipThickness'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
-    frameExport: $('frameExport'), exportFrame: $('exportFrame'),
+    frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
+    frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
+    frameHowTo: $('frameHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
     swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
@@ -40,7 +42,10 @@
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
       outline: { shape: 'none', radius: 5, colorId: null },
-      frame: { on: false, border: 6, lip: 2, lipThickness: 1.2, clearance: 0.3, color: '#3A3A3A' },
+      frame: {
+        on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
+        pocket: false, head: 5,
+      },
     },
   };
   const cache = {};
@@ -346,11 +351,14 @@
     s.loop.hole = Math.min(Math.max(1, +el.loopHole.value || 5), s.loop.outer - 2);
     s.loop.colorId = +el.loopColor.value || s.loop.colorId;
     s.frame.on = el.frameOn.checked;
-    s.frame.border = Math.max(1, +el.frameBorder.value || 6);
-    s.frame.lip = Math.max(0.5, +el.frameLip.value || 2);
-    s.frame.lipThickness = Math.max(0.4, +el.frameLipThickness.value || 1.2);
+    s.frame.border = Math.max(1, +el.frameBorder.value || 10);
+    s.frame.lip = Math.max(0.5, +el.frameLip.value || 1);
+    s.frame.depth = Math.max(1, +el.frameDepth.value || 15);
+    s.frame.lipDepth = Math.max(0.5, +el.frameLipDepth.value || 13);
     s.frame.clearance = Math.max(0, +el.frameClearance.value || 0);
     s.frame.color = el.frameColor.value;
+    s.frame.pocket = el.framePocket.checked;
+    s.frame.head = Math.max(2, +el.frameHead.value || 5);
   }
 
   function applyVisibility() {
@@ -360,6 +368,7 @@
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
+    document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
@@ -373,7 +382,8 @@
   });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
     el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
-    el.frameOn, el.frameBorder, el.frameLip, el.frameLipThickness, el.frameClearance, el.frameColor]) {
+    el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
+    el.framePocket, el.frameHead]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -490,23 +500,48 @@
     S.model = model;
     warnings.push(...model.warnings);
 
-    // Frame: a separate part shaped around the print, as deep as the print is tall.
+    // Frame: a separate part shaped around the print.
     S.frame = null;
     const shown = model.parts.slice();
     if (s.frame.on && model.parts.length) {
       const printBox = L3D.mesh.bounds([model.body]);
-      // Rounded up to 0.01 mm (the small offset ignores floating-point noise like 2.2000001).
-      const depth = Math.ceil((printBox.max[2] + 0.2) * 100 - 1e-6) / 100;
+      const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
       const f = s.frame;
-      const frameKey = [traceKey, scale, depth, f.border, f.lip, f.lipThickness, f.clearance].join('|');
+      const head = f.pocket ? f.head : 0;
+      // Always leave some lip at the front.
+      const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
+      if (lipDepth < f.lipDepth) {
+        warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
+      }
+      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head].join('|');
       if (cache.frameKey !== frameKey) {
         const fg = cache.finalGrid;
-        cache.frameMesh = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
-          border: f.border, lip: f.lip, clearance: f.clearance, lipThickness: f.lipThickness, depth, smooth: s.smooth,
+        const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
+          border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
+          head, smooth: s.smooth,
         }, scale);
+        cache.frameMesh = built.mesh;
+        cache.framePocket = built.pocket;
+        cache.frameBumps = built.bumps;
         cache.frameKey = frameKey;
       }
-      S.frame = { mesh: cache.frameMesh, depth };
+      if (cache.framePocket === 'border') {
+        const need = L3D.frame.pocketBorder(head);
+        warnings.push(f.border >= need
+          ? 'The hanging pocket doesn\'t fit at the top centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean top edge.'
+          : `The hanging pocket doesn't fit in the top of the frame, so it was left out. A ${head} mm head needs a border of at least ${need} mm.`);
+      } else if (cache.framePocket === 'thin') {
+        warnings.push(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
+      }
+      if (printDepth > lipDepth) {
+        warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
+      } else if (!cache.frameBumps) {
+        warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
+      }
+      el.frameHowTo.textContent = 'Print it as exported, face down, in any color. Then ' + (cache.frameBumps
+        ? 'push your print into the back of the frame, face first, until it snaps past the bumps.'
+        : 'put your print into the back of the frame, face first, and glue or tape it in place.');
+      S.frame = { mesh: cache.frameMesh };
       // Show it next to the print, 10 mm to the right.
       const frameBox = L3D.mesh.bounds([cache.frameMesh]);
       shown.push({ name: 'Frame', color: f.color, mesh: cache.frameMesh, offset: [printBox.max[0] - frameBox.min[0] + 10, 0, 0] });

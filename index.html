@@ -144,13 +144,16 @@
       <div class="fields">
         <label class="field check"><input type="checkbox" id="frameOn"> Make a frame</label>
         <label class="field" data-frame>Border width
-          <span class="unit"><input type="number" id="frameBorder" min="1" step="0.5" value="6"> mm</span>
+          <span class="unit"><input type="number" id="frameBorder" min="1" step="0.5" value="10"> mm</span>
         </label>
         <label class="field" data-frame>Lip overlap
-          <span class="unit"><input type="number" id="frameLip" min="0.5" step="0.5" value="2"> mm</span>
+          <span class="unit"><input type="number" id="frameLip" min="0.5" step="0.5" value="1"> mm</span>
         </label>
-        <label class="field" data-frame>Lip thickness
-          <span class="unit"><input type="number" id="frameLipThickness" min="0.4" step="0.2" value="1.2"> mm</span>
+        <label class="field" data-frame title="Front to back">Frame depth
+          <span class="unit"><input type="number" id="frameDepth" min="1" step="0.5" value="15"> mm</span>
+        </label>
+        <label class="field" data-frame title="From the back of the frame to the lip. Frame depth minus this is how far the print sits behind the front.">Lip depth
+          <span class="unit"><input type="number" id="frameLipDepth" min="0.5" step="0.5" value="13"> mm</span>
         </label>
         <label class="field" data-frame>Fit clearance
           <span class="unit"><input type="number" id="frameClearance" min="0" step="0.1" value="0.3"> mm</span>
@@ -158,8 +161,13 @@
         <label class="field" data-frame>Preview color
           <input type="color" id="frameColor" value="#3a3a3a">
         </label>
+        <label class="field check" data-frame><input type="checkbox" id="framePocket"> Hanging pocket</label>
+        <label class="field" data-frame-pocket hidden>Head diameter
+          <span class="unit"><input type="number" id="frameHead" min="2" step="0.5" value="5"> mm</span>
+        </label>
       </div>
-      <p class="muted small" data-frame hidden>A separate part that follows the shape of your print. Its lip covers the edge of the print from the front; the print drops in from the back, face first. The frame is as deep as your print.</p>
+      <p class="muted small" data-frame hidden>A separate part that follows the shape of your print. Its lip covers the edge of the print from the front, and the print pushes in from the back, face first. Lip depth is measured from the back of the frame, so frame depth minus lip depth is how far the print sits behind the front. If the lip depth leaves room, small bumps behind the print hold it in without glue.</p>
+      <p class="muted small" data-frame-pocket hidden>A pocket in the back of the top border, close to the top edge, for hanging on a nail or screw. It is hidden from the front. Push the head of the nail into the opening, then lower the frame so the lip rests on the shank with the head behind it. Set the diameter of the head, and leave just over 1 mm of the shank showing so the head sits close to the wall.</p>
     </div>
   </section>
 
@@ -203,7 +211,7 @@
       </div>
       <div class="export-group" id="frameExport" hidden>
         <h3>Frame</h3>
-        <p class="muted small">Print it as exported, face down, in any color. Then drop your print into the back of the frame, face first, and glue or tape it in place.</p>
+        <p class="muted small" id="frameHowTo">Print it as exported, face down, in any color.</p>
         <div class="exports">
           <button type="button" class="btn primary" id="exportFrame" disabled>Frame (.stl)</button>
         </div>

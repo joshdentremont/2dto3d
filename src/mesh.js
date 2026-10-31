@@ -2,6 +2,8 @@
 (function (L3D) {
   'use strict';
 
+  const NONE = [];
+
   // Earcut occasionally leaves an outline point in the middle of a triangle edge (a crack)
   // when many points share an x coordinate, as pixel outlines do. A complete triangulation
   // has exactly points + 2 * holes - 2 triangles, so retry on slightly rotated copies of the
@@ -87,9 +89,45 @@
   // colour's part, a base plate, or one stepped body holding all colours.
   // scale = mm per pixel. The result is centred on x/y = 0.
   function buildSolid(g, zTop, z0, scale) {
-    const top = l => (l >= 0 && l < zTop.length && zTop[l] != null) ? zTop[l] : null;
-    const levels = [z0];
-    for (const z of zTop) if (z != null && levels.indexOf(z) < 0) levels.push(z);
+    const layers = [];
+    for (let l = 0; l < zTop.length; l++) if (zTop[l] != null) layers[l] = [[z0, zTop[l]]];
+    return buildLayers(g, layers, scale);
+  }
+
+  // The parts of the height range where exactly one side of a border is solid, as
+  // [lo, hi, faceRight] walls. A and B are the solid spans [[from, to], ...] on the left and
+  // right of the border; a wall faces away from the solid side.
+  function wallSpans(A, B) {
+    const stops = [];
+    for (const [p, q] of A.concat(B)) stops.push(p, q);
+    stops.sort((p, q) => p - q);
+    const walls = [];
+    const solid = (S, z) => S.some(([p, q]) => p <= z && z < q);
+    for (let k = 0; k + 1 < stops.length; k++) {
+      const lo = stops[k], hi = stops[k + 1];
+      if (lo === hi) continue;
+      const mid = (lo + hi) / 2, inA = solid(A, mid), inB = solid(B, mid);
+      if (inA === inB) continue;
+      const last = walls[walls.length - 1];
+      if (last && last[1] === lo && last[2] === inA) last[1] = hi;
+      else walls.push([lo, hi, inA]);
+    }
+    return walls;
+  }
+
+  // One closed mesh where each label's column of material can have several solid spans:
+  // layers[label] = [[from, to], ...] in mm, lowest first (missing = left out). This allows
+  // overhangs, such as a pocket with a lip over it. scale = mm per pixel.
+  function buildLayers(g, layers, scale) {
+    const spans = l => (l >= 0 && layers[l]) || NONE;
+    const levels = [];
+    for (const list of layers) {
+      if (!list) continue;
+      for (const [p, q] of list) {
+        if (levels.indexOf(p) < 0) levels.push(p);
+        if (levels.indexOf(q) < 0) levels.push(q);
+      }
+    }
     const levelIndex = new Map(levels.map((z, k) => [z, k]));
     const nL = levels.length;
     const cx = g.W / 2, cy = g.H / 2;
@@ -108,15 +146,15 @@
       return k;
     }
 
-    // Top and bottom faces.
+    // Top and bottom faces of every solid span.
     for (const [l, list] of g.polys) {
-      const zt = top(l);
-      if (zt == null) continue;
-      for (const poly of list) {
-        const t = capTriangles(g, poly);
-        for (let k = 0; k < t.length; k += 3) {
-          idx.push(v(t[k], zt), v(t[k + 1], zt), v(t[k + 2], zt));
-          idx.push(v(t[k], z0), v(t[k + 2], z0), v(t[k + 1], z0));
+      for (const [from, to] of spans(l)) {
+        for (const poly of list) {
+          const t = capTriangles(g, poly);
+          for (let k = 0; k < t.length; k += 3) {
+            idx.push(v(t[k], to), v(t[k + 1], to), v(t[k + 2], to));
+            idx.push(v(t[k], from), v(t[k + 2], from), v(t[k + 1], from));
+          }
         }
       }
     }
@@ -131,39 +169,29 @@
     };
     for (const c of g.chains) {
       if (c.closed) continue;
-      const a = top(c.left), b = top(c.right);
-      if (a == null && b == null) continue;
       for (const pid of [c.startV, c.endV]) {
-        addLevel(pid, z0);
-        if (a != null) addLevel(pid, a);
-        if (b != null) addLevel(pid, b);
+        for (const [p, q] of spans(c.left).concat(spans(c.right))) { addLevel(pid, p); addLevel(pid, q); }
       }
     }
     for (const s of jl.values()) s.sort((p, q) => p - q);
     const clip = (s, lo, hi) => s.filter(z => z >= lo && z <= hi);
 
-    // Walls, facing the lower (or empty) side.
+    // Walls along each border, cached per pair of labels.
+    const wallCache = new Map();
     for (const c of g.chains) {
-      const a = top(c.left), b = top(c.right);
-      let lo, hi, faceRight;
-      if (a != null && b != null) {
-        if (a === b) continue;
-        lo = Math.min(a, b); hi = Math.max(a, b); faceRight = a > b;
-      } else if (a != null) {
-        lo = z0; hi = a; faceRight = true;
-      } else if (b != null) {
-        lo = z0; hi = b; faceRight = false;
-      } else {
-        continue;
-      }
+      const key = c.left + ',' + c.right;
+      let walls = wallCache.get(key);
+      if (!walls) wallCache.set(key, walls = wallSpans(spans(c.left), spans(c.right)));
       const ids = c.ids, n = ids.length;
       const segs = c.closed ? n : n - 1;
-      const span = [lo, hi];
-      for (let k = 0; k < segs; k++) {
-        const p = ids[k], q = ids[(k + 1) % n];
-        const Lz = !c.closed && k === 0 ? clip(jl.get(p), lo, hi) : span;
-        const Rz = !c.closed && k === segs - 1 ? clip(jl.get(q), lo, hi) : span;
-        wallStrip(p, Lz, q, Rz, faceRight);
+      for (const [lo, hi, faceRight] of walls) {
+        const span = [lo, hi];
+        for (let k = 0; k < segs; k++) {
+          const p = ids[k], q = ids[(k + 1) % n];
+          const Lz = !c.closed && k === 0 ? clip(jl.get(p), lo, hi) : span;
+          const Rz = !c.closed && k === segs - 1 ? clip(jl.get(q), lo, hi) : span;
+          wallStrip(p, Lz, q, Rz, faceRight);
+        }
       }
     }
 
@@ -232,5 +260,5 @@
     return { min, max };
   }
 
-  L3D.mesh = { buildSolid, openEdges, volume, bounds };
+  L3D.mesh = { buildSolid, buildLayers, openEdges, volume, bounds };
 })(globalThis.L3D = globalThis.L3D || {});

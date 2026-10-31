@@ -100,16 +100,39 @@ It only routes containers that opt in with `traefik.enable=true`.
        the shorter side, which gives fully rounded ends; bigger values are capped, with a
        warning.
    - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
-     print. A lip covers the print's edge from the front, and the print drops into a recess
+     print. A lip covers the print's edge from the front, and the print pushes into a recess
      from the back, face first. You set:
-     - **Border width**: how wide the frame is outside the print;
-     - **Lip overlap**: how far the lip reaches over the print's edge;
-     - **Lip thickness**;
-     - **Fit clearance**: the gap between the print and the recess.
+     - **Border width**: how wide the frame is outside the print (default 10 mm);
+     - **Lip overlap**: how far the lip reaches over the print's edge (default 1 mm);
+     - **Frame depth**: the frame's total depth, front to back (default 15 mm);
+     - **Lip depth**: from the back of the frame to the lip (default 13 mm). Frame depth minus
+       lip depth is how far the print sits behind the front of the frame (2 mm by default);
+     - **Fit clearance**: the gap between the print and the recess (default 0.3 mm);
+     - **Hanging pocket**: a pocket in the back of the top border, close to the top edge, for
+       hanging on a nail or screw. It doesn't go through to the front, so nothing shows. Set
+       the **Head diameter** of the nail or screw. Push the head into the round opening, then lower the frame: a thin lip at the
+       top of the pocket rests on the shank with the head trapped behind it, and its arched
+       edge centres the frame. Leave just over 1 mm of shank showing, so the head sits close
+       to the wall.
 
-     The recess is as deep as your print plus 0.2 mm, and its outline is mirrored because the
-     print goes in face down. Holes inside the print, such as the inside of letters, show
-     through the opening. The frame appears next to your print in the preview.
+       The pocket always has 1 mm of frame around it, so the border must be at least 1.5 ×
+       the head diameter plus 2.5 mm: 10 mm for a 5 mm head. The frame must be at least 3 mm deep. The pocket is 3.5 mm
+       deep (1 mm of lip and 2.5 mm for the head), or shallower in a thin frame. If it doesn't
+       fit, it's left out and the app says why. On a bare logo the frame's top edge follows the
+       logo, so there may be no room at the top centre; an Outline shape avoids that.
+
+     **Retaining bumps** are added automatically when there's room for them: when the lip
+     depth is more than the print's depth + 0.3 mm + 1 mm. They sit 0.3 mm behind the print.
+     Each side (top, bottom, left and right) gets one in its middle, or two at the third
+     points if the side is longer than 200 mm. A print made of separate shapes gets bumps on
+     each shape. They reach 0.5 mm past the print's edge. Their back edge is sloped, so the print snaps past them on the way in, and their
+     flat front edge holds it there. Without room for bumps, use glue or tape; the app tells
+     you what lip depth would leave room.
+
+     The recess outline is mirrored left to right because the print goes in face down. Holes
+     inside the print, such as the inside of letters, show through the opening. The frame
+     appears next to your print in the preview, seen from the back as it prints, with its top
+     edge at the top.
    - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
      bottom, left or right of the logo, in a color you choose. You set the outer and hole
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within
@@ -126,7 +149,8 @@ It only routes containers that opt in with `traefik.enable=true`.
      - **STL (single body)**: the whole model as one stepped solid.
      - A list of the layers where you change filament.
    - **Frame** (when *Make a frame* is on): **Frame (.stl)**. Print it as exported, lip down,
-     in any color. Then drop your print into the back, face first, and glue or tape it in.
+     in any color. Then push your print into the back, face first, until it snaps past the
+     bumps. If there are no bumps, glue or tape it in.
 
 ## Loading the model into a slicer
 
