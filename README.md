@@ -86,7 +86,7 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Smooth edges** turns pixel staircases into smooth curves, while keeping sharp corners
      (where two straight edges at least 3 pixels long meet) sharp.
    - **Remove specks** cleans up noise from compressed images.
-   - **Base plate** (optional) adds a backing under the logo or a full rectangle, in a color
+   - **Base plate** (optional) adds a backing under the photo or a full rectangle, in a color
      you choose.
    - **Outline** gives the model a shape and fills the empty area inside it with a color you
      choose. The fill is a normal color part at that color's height, and a base plate can
