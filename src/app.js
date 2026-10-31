@@ -17,6 +17,9 @@
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
     outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
+    frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
+    frameLipThickness: $('frameLipThickness'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
+    frameExport: $('frameExport'), exportFrame: $('exportFrame'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
     swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
@@ -37,6 +40,7 @@
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
       outline: { shape: 'none', radius: 5, colorId: null },
+      frame: { on: false, border: 6, lip: 2, lipThickness: 1.2, clearance: 0.3, color: '#3A3A3A' },
     },
   };
   const cache = {};
@@ -341,6 +345,12 @@
     // Keep at least a 1 mm wall around the hole.
     s.loop.hole = Math.min(Math.max(1, +el.loopHole.value || 5), s.loop.outer - 2);
     s.loop.colorId = +el.loopColor.value || s.loop.colorId;
+    s.frame.on = el.frameOn.checked;
+    s.frame.border = Math.max(1, +el.frameBorder.value || 6);
+    s.frame.lip = Math.max(0.5, +el.frameLip.value || 2);
+    s.frame.lipThickness = Math.max(0.4, +el.frameLipThickness.value || 1.2);
+    s.frame.clearance = Math.max(0, +el.frameClearance.value || 0);
+    s.frame.color = el.frameColor.value;
   }
 
   function applyVisibility() {
@@ -348,6 +358,8 @@
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
+    document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
+    el.frameExport.hidden = !S.settings.frame.on;
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
@@ -360,7 +372,8 @@
     schedule(0);
   });
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
-    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor]) {
+    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
+    el.frameOn, el.frameBorder, el.frameLip, el.frameLipThickness, el.frameClearance, el.frameColor]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -461,6 +474,7 @@
         if (r.connected) { labels = r.labels; W = r.W; H = r.H; }
         cache.loopMissed = !r.connected;
       }
+      cache.finalGrid = { labels, W, H };
       cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
       cache.traceKey = traceKey;
     }
@@ -475,8 +489,31 @@
     }, scale);
     S.model = model;
     warnings.push(...model.warnings);
+
+    // Frame: a separate part shaped around the print, as deep as the print is tall.
+    S.frame = null;
+    const shown = model.parts.slice();
+    if (s.frame.on && model.parts.length) {
+      const printBox = L3D.mesh.bounds([model.body]);
+      // Rounded up to 0.01 mm (the small offset ignores floating-point noise like 2.2000001).
+      const depth = Math.ceil((printBox.max[2] + 0.2) * 100 - 1e-6) / 100;
+      const f = s.frame;
+      const frameKey = [traceKey, scale, depth, f.border, f.lip, f.lipThickness, f.clearance].join('|');
+      if (cache.frameKey !== frameKey) {
+        const fg = cache.finalGrid;
+        cache.frameMesh = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
+          border: f.border, lip: f.lip, clearance: f.clearance, lipThickness: f.lipThickness, depth, smooth: s.smooth,
+        }, scale);
+        cache.frameKey = frameKey;
+      }
+      S.frame = { mesh: cache.frameMesh, depth };
+      // Show it next to the print, 10 mm to the right.
+      const frameBox = L3D.mesh.bounds([cache.frameMesh]);
+      shown.push({ name: 'Frame', color: f.color, mesh: cache.frameMesh, offset: [printBox.max[0] - frameBox.min[0] + 10, 0, 0] });
+    }
+
     el.viewerMsg.hidden = model.parts.length > 0;
-    viewer.setParts(model.parts);
+    viewer.setParts(shown);
     showOutput(warnings);
   }
 
@@ -491,6 +528,7 @@
     }
     const has = !!(m && m.parts.length);
     el.export3mf.disabled = el.exportZip.disabled = el.exportStl.disabled = !has;
+    el.exportFrame.disabled = !(has && S.frame);
     el.stats.innerHTML = '';
     el.swapsBox.hidden = true;
     if (!has) return;
@@ -499,7 +537,8 @@
     const tris = m.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0);
     let check = '';
     if (tris <= CHECK_LIMIT) {
-      const open = m.parts.reduce((a, p) => a + L3D.mesh.openEdges(p.mesh), 0) + L3D.mesh.openEdges(m.body);
+      const open = m.parts.reduce((a, p) => a + L3D.mesh.openEdges(p.mesh), 0) + L3D.mesh.openEdges(m.body) +
+        (S.frame ? L3D.mesh.openEdges(S.frame.mesh) : 0);
       check = open ? `<span class="bad">✗ ${open} open edges</span>` : '<span class="ok">✓ watertight</span>';
     }
     const dim = i => (b.max[i] - b.min[i]).toFixed(1);
@@ -537,6 +576,10 @@
   el.exportZip.addEventListener('click', () => {
     if (!S.model) return;
     L3D.exporters.download(L3D.exporters.stlZip(S.model.parts, S.name), S.name + '-parts.zip', 'application/zip');
+  });
+  el.exportFrame.addEventListener('click', () => {
+    if (!S.frame) return;
+    L3D.exporters.download(L3D.exporters.stl([S.frame.mesh]), S.name + '-frame.stl', 'model/stl');
   });
   el.exportStl.addEventListener('click', () => {
     if (!S.model) return;

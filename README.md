@@ -99,6 +99,17 @@ It only routes containers that opt in with `traefik.enable=true`.
        included, is cut away. A radius of 0 gives sharp corners. The largest radius is half
        the shorter side, which gives fully rounded ends; bigger values are capped, with a
        warning.
+   - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
+     print. A lip covers the print's edge from the front, and the print drops into a recess
+     from the back, face first. You set:
+     - **Border width**: how wide the frame is outside the print;
+     - **Lip overlap**: how far the lip reaches over the print's edge;
+     - **Lip thickness**;
+     - **Fit clearance**: the gap between the print and the recess.
+
+     The recess is as deep as your print plus 0.2 mm, and its outline is mirrored because the
+     print goes in face down. Holes inside the print, such as the inside of letters, show
+     through the opening. The frame appears next to your print in the preview.
    - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
      bottom, left or right of the logo, in a color you choose. You set the outer and hole
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within
@@ -114,6 +125,8 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Single extruder** (only when *Different height per color* is on):
      - **STL (single body)**: the whole model as one stepped solid.
      - A list of the layers where you change filament.
+   - **Frame** (when *Make a frame* is on): **Frame (.stl)**. Print it as exported, lip down,
+     in any color. Then drop your print into the back, face first, and glue or tape it in.
 
 ## Loading the model into a slicer
 
@@ -147,6 +160,7 @@ It only routes containers that opt in with `traefik.enable=true`.
 | `src/mesh.js` | Builds closed meshes from the outlines; watertight and volume checks |
 | `src/model.js` | Applies the mode, heights and base plate, and works out filament changes |
 | `src/keychain.js` | Adds the keychain loop to the color grid before tracing |
+| `src/frame.js` | Builds the front-lip frame from the print's footprint |
 | `src/export.js` | STL, 3MF and ZIP writers |
 | `src/raster.js` | Image loading, resampling and color sampling (browser only) |
 | `src/viewer.js` | three.js 3D preview |

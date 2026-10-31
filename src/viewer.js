@@ -34,7 +34,7 @@
       scene.add(bed);
     }
 
-    // parts: [{ color: '#RRGGBB', mesh: { positions, indices } }]
+    // parts: [{ color: '#RRGGBB', mesh: { positions, indices }, offset: [x, y, z] (optional) }]
     function setParts(parts) {
       for (const child of group.children.slice()) {
         group.remove(child);
@@ -50,7 +50,9 @@
           color: new THREE.Color(part.color), flatShading: true, roughness: 0.75, metalness: 0,
           polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
-        group.add(new THREE.Mesh(geo, mat));
+        const mesh = new THREE.Mesh(geo, mat);
+        if (part.offset) mesh.position.set(part.offset[0], part.offset[1], part.offset[2]);
+        group.add(mesh);
       }
       const box = new THREE.Box3().setFromObject(group);
       if (!box.isEmpty()) {

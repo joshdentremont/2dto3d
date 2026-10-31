@@ -163,6 +163,51 @@
       results.push(res);
     }
 
+    // Distance map against brute force.
+    {
+      const W = 9, H = 7, rnd = randomGrid(W, H, 1, 7).rnd, mask = new Uint8Array(W * H);
+      for (let k = 0; k < W * H; k++) mask[k] = rnd() < 0.15 ? 1 : 0;
+      mask[0] = 1;
+      const d = L3D.frame.distanceSq(mask, W, H);
+      const errors = [];
+      for (let p = 0; p < W * H; p++) {
+        let best = Infinity;
+        for (let q = 0; q < W * H; q++) {
+          if (mask[q]) best = Math.min(best, (p % W - q % W) ** 2 + (Math.floor(p / W) - Math.floor(q / W)) ** 2);
+        }
+        if (d[p] !== best) errors.push(`pixel ${p}: ${d[p]}, expected ${best}`);
+      }
+      results.push({ name: 'frame distance map', ok: !errors.length, errors: errors.slice(0, 5) });
+    }
+
+    // Frames: around a block, around an L (opening must be mirrored), around a ring (hole
+    // ignored).
+    const frameCases = [
+      ['block', ['aaaaaa', 'aaaaaa', 'aaaaaa', 'aaaaaa']],
+      ['L shape', ['aaa.......', 'aaa.......', 'aaa.......', 'aaaaaaaaaa', 'aaaaaaaaaa', 'aaaaaaaaaa']],
+      ['ring', ['aaaaaa', 'a....a', 'a....a', 'aaaaaa']],
+    ];
+    for (const [shape, rows] of frameCases) {
+      const g0 = grid(rows);
+      const opts = { border: 2, lip: 1, clearance: 0.5 };
+      const f = L3D.frame.frameGrid(g0.labels, g0.W, g0.H, opts);
+      const res = checkGrid(`frame around ${shape}`, f, [1.2, 3.4], true, false);
+      const count = l => f.labels.reduce((a, v) => a + (v === l ? 1 : 0), 0);
+      if (!count(0) || !count(1)) res.errors.push(`lip ${count(0)} px, wall ${count(1)} px`);
+      // Opening = empty pixels not connected to the outside of the frame grid.
+      const pad = (f.W - g0.W) / 2;
+      const at = (x, y) => f.labels[(y + pad) * f.W + x + pad];
+      // A ring's hole is part of the print's face, so it must be in the opening, not lip.
+      if (shape === 'ring' && (at(2, 1) !== -1 || at(3, 2) !== -1)) res.errors.push('ring hole was not ignored');
+      if (shape === 'L shape') {
+        // Mirrored top-to-bottom: the L's full-width rows (3-5) end up at the top, so the
+        // opening is at the top right and the bottom right (the missing corner) is frame.
+        if (at(7, 1) !== -1 || at(7, 4) === -1) res.errors.push('frame opening is not mirrored');
+      }
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 
