@@ -155,6 +155,12 @@
         <label class="field" data-frame title="From the back of the frame to the lip. Frame depth minus this is how far the print sits behind the front.">Lip depth
           <span class="unit"><input type="number" id="frameLipDepth" min="0.5" step="0.5" value="13"> mm</span>
         </label>
+        <label class="field" data-frame title="Rounds the outside edge of the frame's front. 0 gives a square edge.">Outer edge radius
+          <span class="unit"><input type="number" id="frameOuterRadius" min="0" step="0.5" value="1"> mm</span>
+        </label>
+        <label class="field" data-frame title="Rounds the front edge of the opening. 0 gives a square edge.">Inner edge radius
+          <span class="unit"><input type="number" id="frameInnerRadius" min="0" step="0.5" value="1"> mm</span>
+        </label>
         <label class="field" data-frame>Fit clearance
           <span class="unit"><input type="number" id="frameClearance" min="0" step="0.1" value="0.3"> mm</span>
         </label>
@@ -164,6 +170,9 @@
         <label class="field check" data-frame><input type="checkbox" id="framePocket"> Hanging pocket</label>
         <label class="field" data-frame-pocket hidden>Head diameter
           <span class="unit"><input type="number" id="frameHead" min="2" step="0.5" value="5"> mm</span>
+        </label>
+        <label class="field" data-frame-pocket hidden title="From the back of the frame. Leave blank for as deep as it can go, keeping 1 mm of frame in front of it.">Pocket depth
+          <span class="unit"><input type="number" id="framePocketDepth" min="2" step="0.5"> mm</span>
         </label>
       </div>
       <p class="muted small" data-frame hidden>A separate part that follows the shape of your print. Its lip covers the edge of the print from the front, and the print pushes in from the back, face first. Lip depth is measured from the back of the frame, so frame depth minus lip depth is how far the print sits behind the front. If the lip depth leaves room, small bumps behind the print hold it in without glue.</p>
@@ -178,6 +187,9 @@
         <span class="stats" id="stats"></span>
       </div>
       <div class="viewer" id="viewer">
+        <button type="button" class="viewer-home" id="viewerHome" title="Reset view" aria-label="Reset view">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/></svg>
+        </button>
         <div class="viewer-msg" id="viewerMsg">The 3D model appears here once you've picked a color.</div>
         <div class="busy" id="busy" hidden>Building…</div>
       </div>

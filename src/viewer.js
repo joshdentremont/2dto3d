@@ -60,14 +60,23 @@
         const longest = Math.max(size.x, size.y, size.z);
         if (!bed || Math.abs(longest - lastSize) > lastSize * 0.2) {
           setBed(Math.max(size.x, size.y));
-          const d = longest * 2.1 + 20;
-          const c = box.getCenter(new THREE.Vector3());
-          controls.target.set(c.x, c.y, 0);
-          camera.position.set(c.x, c.y - d * 0.75, d * 0.75);
-          controls.update();
+          home();
           lastSize = longest;
         }
       }
+      render();
+    }
+
+    // The default view: looking down at the model from the front.
+    function home() {
+      const box = new THREE.Box3().setFromObject(group);
+      if (box.isEmpty()) return;
+      const size = box.getSize(new THREE.Vector3());
+      const d = Math.max(size.x, size.y, size.z) * 2.1 + 20;
+      const c = box.getCenter(new THREE.Vector3());
+      controls.target.set(c.x, c.y, 0);
+      camera.position.set(c.x, c.y - d * 0.75, d * 0.75);
+      controls.update();
       render();
     }
 
@@ -86,7 +95,7 @@
 
     new ResizeObserver(resize).observe(container);
     resize();
-    return { setParts };
+    return { setParts, home };
   }
 
   L3D.viewer = { createViewer };

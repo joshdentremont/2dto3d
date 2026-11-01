@@ -21,6 +21,8 @@
     frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
+    framePocketDepth: $('framePocketDepth'), frameOuterRadius: $('frameOuterRadius'), frameInnerRadius: $('frameInnerRadius'),
+    viewerHome: $('viewerHome'),
     frameHowTo: $('frameHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
@@ -44,7 +46,7 @@
       outline: { shape: 'none', radius: 5, colorId: null },
       frame: {
         on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
-        pocket: false, head: 5,
+        pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1,
       },
     },
   };
@@ -359,6 +361,9 @@
     s.frame.color = el.frameColor.value;
     s.frame.pocket = el.framePocket.checked;
     s.frame.head = Math.max(2, +el.frameHead.value || 5);
+    s.frame.pocketDepth = Math.max(0, +el.framePocketDepth.value || 0); // 0 = as deep as it can go
+    s.frame.outerRadius = Math.max(0, +el.frameOuterRadius.value || 0);
+    s.frame.innerRadius = Math.max(0, +el.frameInnerRadius.value || 0);
   }
 
   function applyVisibility() {
@@ -368,6 +373,7 @@
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
+    el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
     el.singleOn.hidden = mode !== 'layered';
@@ -383,7 +389,7 @@
   for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
     el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
-    el.framePocket, el.frameHead]) {
+    el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius]) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
@@ -508,17 +514,22 @@
       const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
       const f = s.frame;
       const head = f.pocket ? f.head : 0;
+      // The rounding can't reach past the border or the frame's depth, or off the lip.
+      const outerRadius = Math.min(f.outerRadius, f.border, f.depth);
+      if (outerRadius < f.outerRadius) warnings.push(`The outer edge radius was limited to ${outerRadius} mm, the size of the frame's border or depth.`);
       // Always leave some lip at the front.
       const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
       if (lipDepth < f.lipDepth) {
         warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
       }
-      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head].join('|');
+      const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
+      if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
+      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius].join('|');
       if (cache.frameKey !== frameKey) {
         const fg = cache.finalGrid;
         const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
           border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
-          head, smooth: s.smooth,
+          head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, smooth: s.smooth,
         }, scale);
         cache.frameMesh = built.mesh;
         cache.framePocket = built.pocket;
@@ -601,6 +612,8 @@
     d.textContent = 'Something went wrong while building the model: ' + err.message;
     el.warnings.appendChild(d);
   }
+
+  el.viewerHome.addEventListener('click', viewer.home);
 
   // ---------- exports ----------
 

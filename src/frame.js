@@ -8,17 +8,23 @@
 //   label 2 = hanging pocket opening (solid up to the pocket floor, open to the back)
 //   label 3 = hanging pocket under its lip (solid to the floor, a gap for the head, the lip)
 //   labels 4, 5, 6 = retaining bump: lip, a gap for the print, then a bump, tallest by the wall
+// Rounded front edges are made of rings: near the outer edge or the opening, a pixel's label
+// is one of the above plus KINDS * ring, where ring says how many ROUND_STEPs its front face
+// is set back.
 (function (L3D) {
   'use strict';
 
   const FAR = 1e20;
+  const KINDS = 7;
+  // Rounded front edges: height of each step (mm), matching a typical print layer.
+  const ROUND_STEP = 0.2;
+
   // Hanging pocket sizes, in mm. The opening is HEAD_CLEARANCE wider than the nail or screw
-  // head, and the pocket's lip is RETAIN thick. Behind the lip there is HEAD_SPACE for the
-  // head, or less in a thin frame: at least MIN_GAP, leaving a closed front at least SKIN thick.
+  // head, and the pocket's lip is RETAIN thick. At least SKIN of frame stays in front of the
+  // pocket, and at least MIN_GAP is left behind the lip for the head.
   const HEAD_CLEARANCE = 0.5;
   const RETAIN = 1;
-  const HEAD_SPACE = 2.5;
-  const SKIN = 0.8;
+  const SKIN = 1;
   const MIN_GAP = 1.2;
   // Wall (mm) left all around the pocket. These frames are light, so this is enough.
   const POCKET_WALL = 1;
@@ -34,8 +40,14 @@
   const BUMP_LONG_SIDE = 200;
   const BUMP_STEPS = 3;
 
-  // Frame depth and border width (mm) a pocket for this head needs.
+  // Frame depth and border width (mm) a pocket for this head needs, and the deepest pocket
+  // a frame of this depth can have.
   const pocketThickness = () => SKIN + MIN_GAP + RETAIN;
+  const maxPocketDepth = frameDepth => frameDepth - SKIN;
+
+  // Largest radius (mm) for rounding the edge of the opening: it has to stay on the lip
+  // (lipWidth = overlap + clearance) and leave some lip thickness at the opening.
+  const maxInnerRadius = (lipWidth, lipThickness) => Math.max(0, Math.min(lipWidth, lipThickness - ROUND_STEP));
   function pocketBorder(head) {
     return Math.ceil((head + HEAD_CLEARANCE + head / 2 + 2 * POCKET_WALL) * 2) / 2;
   }
@@ -228,8 +240,9 @@
   // labels: the print's final label grid (W x H). opts (all in pixels): border (frame width
   // outside the recess), lip (how far the lip overlaps the print's edge), clearance (gap
   // between print and recess); optionally pocketRadius, pocketRise and pocketWall for a
-  // hanging pocket, and bumpReach, bumpWidth and bumpLongSide for retaining bumps.
-  // Returns { labels, W, H, pocketCut } for tracing.
+  // hanging pocket; bumpReach, bumpWidth and bumpLongSide for retaining bumps; outerRadius,
+  // innerRadius and roundStep for rounded front edges. Returns { labels, W, H, pocketCut }
+  // for tracing.
   function frameGrid(labels, W, H, opts) {
     const pad = Math.ceil(opts.border + opts.clearance) + 2;
     const { F, W: NW, H: NH } = footprint(labels, W, H, pad);
@@ -254,41 +267,79 @@
     const pocketCut = opts.pocketRadius > 0 &&
       cutPocket(out, NW, NH, opts.pocketRadius, opts.pocketRise, opts.pocketWall || 0);
     if (opts.bumpReach > 0) addBumps(out, recess, NW, NH, opts.bumpReach, opts.bumpWidth, opts.bumpLongSide, opts.clearance);
+    if (opts.outerRadius > 0 || opts.innerRadius > 0) {
+      const outside = new Uint8Array(NW * NH), opening = new Uint8Array(NW * NH);
+      for (let i = 0; i < NW * NH; i++) {
+        outside[i] = recess[i] || toRecess[i] <= b2 ? 0 : 1;
+        opening[i] = recess[i] && out[i] < 0 ? 1 : 0;
+      }
+      const toOutside = distanceSq(outside, NW, NH), toOpening = distanceSq(opening, NW, NH);
+      // A quarter circle: full set-back at the edge, none r pixels in. Distances are from
+      // pixel centres, so the edge itself is half a pixel nearer.
+      const setBack = (r, dSq) => {
+        const d = Math.sqrt(dSq) - 0.5;
+        return !(r > 0) || d >= r ? 0 : r - Math.sqrt(Math.max(r * r - (r - d) * (r - d), 0));
+      };
+      for (let i = 0; i < NW * NH; i++) {
+        if (out[i] < 0) continue;
+        const back = Math.max(setBack(opts.outerRadius, toOutside[i]), setBack(opts.innerRadius, toOpening[i]));
+        out[i] += KINDS * Math.round(back / opts.roundStep);
+      }
+    }
     return { labels: out, W: NW, H: NH, pocketCut };
   }
 
   // The frame, as { mesh, pocket, bumps }. pocket is 'none', 'ok', 'thin' (frame too thin) or
   // 'border' (no room in the top border); bumps says whether they were added. Distances in
   // opts are in mm: frameDepth (front to back), lipDepth (back of the frame to the lip),
-  // printDepth, head (0 = no pocket). scale = mm per pixel.
+  // printDepth, head (0 = no pocket), pocketDepth (0 = as deep as possible), outerRadius and
+  // innerRadius (0 = square edge). scale = mm per pixel.
   function buildFrame(labels, W, H, opts, scale) {
     const total = opts.frameDepth, lipTop = total - opts.lipDepth;
     const head = opts.head || 0;
     const room = total >= pocketThickness() - 1e-6;
     const bumps = opts.lipDepth > bumpDepth(opts.printDepth) + 1e-6;
+    const outerRadius = opts.outerRadius || 0;
+    const innerRadius = Math.min(opts.innerRadius || 0, maxInnerRadius(opts.lip + opts.clearance, lipTop));
     const grid = frameGrid(labels, W, H, {
       border: opts.border / scale, lip: opts.lip / scale, clearance: opts.clearance / scale,
       pocketRadius: head > 0 && room ? (head + HEAD_CLEARANCE) / 2 / scale : 0,
       pocketRise: head / 2 / scale, pocketWall: POCKET_WALL / scale,
       bumpReach: bumps ? (opts.clearance + BUMP_OVERLAP) / scale : 0,
       bumpWidth: BUMP_WIDTH / scale, bumpLongSide: BUMP_LONG_SIDE / scale,
+      outerRadius: outerRadius / scale, innerRadius: innerRadius / scale, roundStep: ROUND_STEP / scale,
     });
     const g = L3D.contours.trace(grid.labels, grid.W, grid.H, { smooth: opts.smooth });
-    const floor = Math.max(SKIN, total - RETAIN - HEAD_SPACE);
-    const layers = [
+
+    const deepest = maxPocketDepth(total);
+    const pocketDepth = Math.min(deepest, Math.max(RETAIN + MIN_GAP, opts.pocketDepth || deepest));
+    const floor = total - pocketDepth, bumpFrom = lipTop + opts.printDepth + BUMP_GAP;
+    const bumpTop = s => bumpFrom + BUMP_HEIGHT * (BUMP_STEPS - s) / BUMP_STEPS;
+    const kinds = [
       [[0, lipTop]],
       [[0, total]],
       [[0, floor]],
       [[0, floor], [total - RETAIN, total]],
     ];
-    const bumpFrom = lipTop + opts.printDepth + BUMP_GAP;
-    for (let s = 0; s < BUMP_STEPS; s++) {
-      layers.push([[0, lipTop], [bumpFrom, bumpFrom + BUMP_HEIGHT * (BUMP_STEPS - s) / BUMP_STEPS]]);
+    for (let s = 0; s < BUMP_STEPS; s++) kinds.push([[0, lipTop], [bumpFrom, bumpTop(s)]]);
+
+    // Every kind of column at every set-back of the rounded edges. The pocket's floor moves
+    // back with the front face, so that SKIN of frame always stays in front of it.
+    const rings = Math.ceil(Math.max(outerRadius, innerRadius) / ROUND_STEP) + 1;
+    const layers = [];
+    for (let ring = 0; ring < rings; ring++) {
+      const front = Math.round(ring * ROUND_STEP * 1e4) / 1e4;
+      kinds.forEach((spans, kind) => {
+        layers[kind + KINDS * ring] = spans.map(([p, q], k) => {
+          const pocket = (kind === 2 || kind === 3) && k === 0;
+          return [Math.max(p, front), pocket ? Math.max(q, front + SKIN) : q];
+        }).filter(([p, q]) => q > p + 1e-6);
+      });
     }
     const mesh = L3D.mesh.buildLayers(g, layers, scale);
     const pocket = !head ? 'none' : !room ? 'thin' : grid.pocketCut ? 'ok' : 'border';
     return { mesh, pocket, bumps };
   }
 
-  L3D.frame = { distanceSq, frameGrid, buildFrame, pocketBorder, pocketThickness, bumpDepth };
+  L3D.frame = { distanceSq, frameGrid, buildFrame, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth };
 })(globalThis.L3D = globalThis.L3D || {});

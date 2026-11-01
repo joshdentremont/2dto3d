@@ -107,6 +107,11 @@ It only routes containers that opt in with `traefik.enable=true`.
      - **Frame depth**: the frame's total depth, front to back (default 15 mm);
      - **Lip depth**: from the back of the frame to the lip (default 13 mm). Frame depth minus
        lip depth is how far the print sits behind the front of the frame (2 mm by default);
+     - **Outer edge radius**: rounds the outside edge of the frame's front (default 1 mm; 0
+       gives a square edge). It's built from 0.2 mm steps, matching a typical layer height;
+     - **Inner edge radius**: rounds the front edge of the opening in the same way (default
+       1 mm). It has to fit on the lip, so it's limited to the lip overlap plus the fit
+       clearance, and it leaves at least 0.2 mm of lip thickness at the opening;
      - **Fit clearance**: the gap between the print and the recess (default 0.3 mm);
      - **Hanging pocket**: a pocket in the back of the top border, close to the top edge, for
        hanging on a nail or screw. It doesn't go through to the front, so nothing shows. Set
@@ -116,9 +121,12 @@ It only routes containers that opt in with `traefik.enable=true`.
        to the wall.
 
        The pocket always has 1 mm of frame around it, so the border must be at least 1.5 ×
-       the head diameter plus 2.5 mm: 10 mm for a 5 mm head. The frame must be at least 3 mm deep. The pocket is 3.5 mm
-       deep (1 mm of lip and 2.5 mm for the head), or shallower in a thin frame. If it doesn't
-       fit, it's left out and the app says why. On a bare logo the frame's top edge follows the
+       the head diameter plus 2.5 mm: 10 mm for a 5 mm head. The frame must be at least 3.2 mm deep.
+
+       **Pocket depth** is measured from the back of the frame. Leave it blank for as deep as
+       it can go, keeping 1 mm of frame in front of it (14 mm in a 15 mm frame). Values are
+       limited to what fits, down to 2.2 mm. Where a rounded front reaches the pocket, the
+       pocket's floor moves back too, so the 1 mm stays. If it doesn't fit, it's left out and the app says why. On a bare logo the frame's top edge follows the
        logo, so there may be no room at the top centre; an Outline shape avoids that.
 
      **Retaining bumps** are added automatically when there's room for them: when the lip
@@ -138,7 +146,8 @@ It only routes containers that opt in with `traefik.enable=true`.
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within
      reach on that side, the loop is left off and the app suggests another side. The loop
      sits outside the image, so it adds to the size shown in the preview.
-4. **Preview.** Check the 3D model: drag to rotate, scroll to zoom, right-drag to pan. The
+4. **Preview.** Check the 3D model: drag to rotate, scroll to zoom, right-drag to pan, and
+   use the home button to get back to the default view. The
    panel shows the size and triangle count, and confirms the model is **watertight** (fully
    closed, which slicers need).
 5. **Export.** Pick the group that matches your printer.

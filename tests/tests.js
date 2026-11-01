@@ -326,10 +326,76 @@
       if (open) res.errors.push(`${open} open edges with bumps`);
       if (!(L3D.mesh.volume(yes.mesh) > 0)) res.errors.push('frame volume');
       const z = heights(yes.mesh);
-      // Lip to 2; print 2..4; bump from 4.3 to 5.3; pocket floor 15 - 1 - 2.5 = 11.5, lip from 14.
-      for (const want of ['2.00', '4.30', '5.30', '11.50', '14.00', '15.00']) if (!z.has(want)) res.errors.push(`no surface at ${want} mm`);
+      // Lip to 2; print 2..4; bump from 4.3 to 5.3; pocket floor 1 (as deep as it can go), lip from 14.
+      for (const want of ['1.00', '2.00', '4.30', '5.30', '14.00', '15.00']) if (!z.has(want)) res.errors.push(`no surface at ${want} mm`);
       if (L3D.frame.buildFrame(g0.labels, g0.W, g0.H, Object.assign({ lipDepth: 3.3 }, opts), 1).bumps) res.errors.push('bumps added with no room (exactly at the limit)');
       if (!L3D.frame.buildFrame(g0.labels, g0.W, g0.H, Object.assign({ lipDepth: 3.4 }, opts), 1).bumps) res.errors.push('bumps missing just above the limit');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
+    // Pocket depth, and the rounded front.
+    {
+      const g0 = grid(Array(120).fill('a'.repeat(160)));
+      const res = { name: 'frame pocket depth and rounded front', errors: [] };
+      const opts = { border: 12, lip: 1, clearance: 0.3, frameDepth: 15, lipDepth: 13, printDepth: 2, head: 5, smooth: true };
+      const scale = 0.25;
+      const build = extra => L3D.frame.buildFrame(g0.labels, g0.W, g0.H, Object.assign({}, opts, extra), scale);
+      const heights = m => { const z = new Set(); for (let i = 2; i < m.positions.length; i += 3) z.add(m.positions[i].toFixed(2)); return z; };
+
+      const floors = [[undefined, '1.00'], [3.5, '11.50'], [99, '1.00'], [1, '12.80']];
+      for (const [pocketDepth, want] of floors) {
+        if (!heights(build({ pocketDepth }).mesh).has(want)) res.errors.push(`pocket depth ${pocketDepth}: no floor at ${want} mm`);
+      }
+      if (L3D.frame.maxPocketDepth(15) !== 14) res.errors.push('deepest pocket on a 15 mm frame should be 14 mm');
+
+      const square = build({}).mesh;
+      if (L3D.mesh.volume(square) <= 0) res.errors.push('square frame volume');
+      if ([...heights(square)].some(z => z === '0.20' || z === '0.40')) res.errors.push('a square edge should have no steps');
+      for (const smooth of [false, true]) {
+        const m = build({ outerRadius: 2, smooth }).mesh;
+        const open = L3D.mesh.openEdges(m);
+        if (open) res.errors.push(`${open} open edges with a rounded front (smooth ${smooth})`);
+        if (L3D.mesh.volume(m) >= L3D.mesh.volume(square)) res.errors.push('rounding should remove material');
+        const box = L3D.mesh.bounds([m]);
+        const p = m.positions;
+        let frontMax = -Infinity;
+        for (let i = 0; i < p.length; i += 3) if (p[i + 2] === 0 && p[i] > frontMax) frontMax = p[i];
+        const inset = box.max[0] - frontMax;
+        if (Math.abs(inset - 2) > 0.5) res.errors.push(`front face inset ${inset.toFixed(2)} mm, expected about 2`);
+        const z = heights(m);
+        for (const want of ['0.20', '0.40', '1.00']) if (!z.has(want)) res.errors.push(`no rounding step at ${want} mm`);
+      }
+      const big = L3D.mesh.openEdges(build({ outerRadius: 8 }).mesh);
+      if (big) res.errors.push(`${big} open edges with rounding reaching the pocket`);
+
+      // Inner edge: across the lip, the set-back rises steadily towards the opening and is
+      // zero more than the radius away from it. (7 kinds of column per ring.)
+      const across = L3D.frame.frameGrid(g0.labels, g0.W, g0.H, { border: 48, lip: 8, clearance: 2, innerRadius: 6, roundStep: 0.5 });
+      const row = Math.floor(across.H / 2) * across.W;
+      let edge = 0;
+      while (across.labels[row + edge] < 0) edge++;  // the empty space outside the frame
+      while (across.labels[row + edge] >= 0) edge++; // the frame, up to the opening
+      const rings = [];
+      for (let x = edge - 8; x < edge; x++) rings.push(Math.floor(across.labels[row + x] / 7));
+      if (rings.some((r, k) => k > 0 && r < rings[k - 1])) res.errors.push(`set-back does not rise towards the opening: ${rings}`);
+      if (!(rings[rings.length - 1] > 0)) res.errors.push(`no set-back at the opening: ${rings}`);
+      if (rings[0] !== 0) res.errors.push(`set-back reaches further than the radius: ${rings}`);
+      for (let x = edge - 8; x < edge; x++) if (across.labels[row + x] % 7 !== 0) res.errors.push('rounding changed the lip column');
+
+      for (const smooth of [false, true]) {
+        const m = build({ innerRadius: 1, outerRadius: 1, smooth }).mesh;
+        const open = L3D.mesh.openEdges(m);
+        if (open) res.errors.push(`${open} open edges with both edges rounded (smooth ${smooth})`);
+        if (L3D.mesh.volume(m) >= L3D.mesh.volume(build({ outerRadius: 1, smooth }).mesh)) res.errors.push('inner rounding should remove material');
+      }
+      if (L3D.frame.maxInnerRadius(1.3, 2) !== 1.3) res.errors.push('inner radius should be limited by the lip width');
+      if (Math.abs(L3D.frame.maxInnerRadius(5, 1) - 0.8) > 1e-9) res.errors.push('inner radius should leave some lip thickness');
+      if (L3D.frame.maxInnerRadius(1, 0.1) !== 0) res.errors.push('a very thin lip should allow no inner radius');
+      const capped = build({ innerRadius: 99 });
+      if (L3D.mesh.openEdges(capped.mesh)) res.errors.push('open edges with an oversized inner radius');
+      const thin = build({ innerRadius: 1, lipDepth: 14.9 });
+      if (L3D.mesh.openEdges(thin.mesh)) res.errors.push('open edges with a very thin lip');
       res.ok = res.errors.length === 0;
       results.push(res);
     }

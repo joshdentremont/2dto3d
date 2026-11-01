@@ -159,6 +159,12 @@ input[type=number] { width: 76px; }
 .viewer-panel { display: flex; flex-direction: column; }
 .viewer { position: relative; height: min(56vh, 520px); min-height: 280px; border-radius: 8px; background: var(--stage); overflow: hidden; }
 .viewer canvas { display: block; width: 100% !important; height: 100% !important; }
+.viewer-home {
+  position: absolute; top: 10px; left: 10px; z-index: 1;
+  display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.viewer-home:hover { border-color: var(--accent); }
 .viewer-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 16px; text-align: center; pointer-events: none; }
 .busy {
   position: absolute; top: 10px; right: 10px; padding: 4px 10px; border-radius: 999px;
