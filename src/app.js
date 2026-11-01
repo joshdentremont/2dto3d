@@ -17,7 +17,7 @@
     fileInput: $('fileInput'), fileInput2: $('fileInput2'), replaceBtn: $('replaceBtn'), pickHint: $('pickHint'),
     suggestColors: $('suggestColors'), viewToggle: $('viewToggle'), palette: $('palette'), paletteEmpty: $('paletteEmpty'),
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
-    detail: $('detail'), speck: $('speck'), smooth: $('smooth'),
+    detail: $('detail'), speck: $('speck'), smooth: $('smooth'), bedWidth: $('bedWidth'), bedDepth: $('bedDepth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
     outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
@@ -49,7 +49,7 @@
     hover: -1,          // palette index highlighted from the list
     model: null,
     settings: {
-      mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true,
+      mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true, bedWidth: 256, bedDepth: 256,
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
       outline: { shape: 'none', radius: 5, colorId: null },
@@ -490,6 +490,8 @@
     s.detail = +el.detail.value;
     s.speckMm2 = Math.max(0, +el.speck.value || 0);
     s.smooth = el.smooth.checked;
+    s.bedWidth = Math.max(50, +el.bedWidth.value || 256);
+    s.bedDepth = Math.max(50, +el.bedDepth.value || 256);
     s.base.type = el.baseType.value;
     s.outline.shape = el.outlineShape.value;
     s.outline.radius = Math.max(0, +el.cornerRadius.value || 0);
@@ -524,6 +526,7 @@
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
     el.frameView.hidden = !S.settings.frame.on;
+    viewer.setBed(S.settings.bedWidth, S.settings.bedDepth);
     el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
@@ -538,7 +541,7 @@
     saveSettings();
     schedule(0);
   });
-  const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
+  const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
     el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius];
@@ -772,13 +775,24 @@
       S.frame = { mesh: cache.frameMesh, depth: f.depth, lipDepth, printDepth };
     }
 
+    // Each part has to fit on its own: they're printed separately.
+    const checkBed = (what, meshes) => {
+      const b = L3D.mesh.bounds(meshes), w = b.max[0] - b.min[0], d = b.max[1] - b.min[1];
+      const fit = L3D.model.fitsBed(w, d, s.bedWidth, s.bedDepth);
+      if (fit === 'no') warnings.push(`The ${what} is ${w.toFixed(1)} × ${d.toFixed(1)} mm, too big for the ${s.bedWidth} × ${s.bedDepth} mm bed.`);
+      else if (fit === 'turn') warnings.push(`The ${what} only fits the bed turned 90°, so rotate it in your slicer.`);
+    };
+    if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
+    if (S.frame) checkBed('frame', [S.frame.mesh]);
+
     el.viewerMsg.hidden = model.parts.length > 0;
     showParts();
     showOutput(warnings);
   }
 
   // Puts the model in the 3D view. A frame goes next to the print, 10 mm to the right, as it
-  // prints; or around it, as it will look finished.
+  // prints; or around it, as it will look finished. (They're printed separately, so a pair
+  // running off the bed side by side doesn't mean either part won't fit.)
   function showParts() {
     const parts = S.model.parts, frame = S.frame;
     if (!frame) { viewer.setParts(parts); return; }
@@ -789,8 +803,12 @@
         [{ name: 'Frame', color, mesh: frame.mesh, turned: true, offset: [0, 0, at.frameZ] }]));
       return;
     }
+    // Side by side, with the pair centred on the bed.
     const printBox = L3D.mesh.bounds([S.model.body]), frameBox = L3D.mesh.bounds([frame.mesh]);
-    viewer.setParts(parts.concat([{ name: 'Frame', color, mesh: frame.mesh, offset: [printBox.max[0] - frameBox.min[0] + 10, 0, 0] }]));
+    const frameAt = printBox.max[0] - frameBox.min[0] + 10;
+    const centre = (printBox.min[0] + frameBox.max[0] + frameAt) / 2;
+    viewer.setParts(parts.map(p => Object.assign({}, p, { offset: [-centre, 0, 0] })).concat(
+      [{ name: 'Frame', color, mesh: frame.mesh, offset: [frameAt - centre, 0, 0] }]));
   }
 
   function showOutput(warnings) {

@@ -24,14 +24,28 @@
     scene.add(group);
     let lastSize = 0;
 
-    function setBed(size) {
-      if (bed) { scene.remove(bed); bed.geometry.dispose(); bed.material.dispose(); }
-      const span = Math.max(100, Math.ceil(size * 1.4 / 10) * 10);
-      bed = new THREE.GridHelper(span, span / 10, 0x8a8a96, 0x8a8a96);
-      bed.material.transparent = true;
-      bed.material.opacity = 0.35;
-      bed.rotation.x = Math.PI / 2;
+    // The printer's bed, centred on the origin: 10 mm squares inside a brighter edge.
+    function setBed(w, d) {
+      const key = w + 'x' + d;
+      if (bed && bed.userData.key === key) return;
+      if (bed) {
+        scene.remove(bed);
+        for (const line of bed.children) { line.geometry.dispose(); line.material.dispose(); }
+      }
+      const hw = w / 2, hd = d / 2, grid = [];
+      for (let x = 10; x < w; x += 10) grid.push(x - hw, -hd, 0, x - hw, hd, 0);
+      for (let y = 10; y < d; y += 10) grid.push(-hw, y - hd, 0, hw, y - hd, 0);
+      const lines = (points, Type, opacity) => {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+        return new Type(geo, new THREE.LineBasicMaterial({ color: 0x8a8a96, transparent: true, opacity }));
+      };
+      bed = new THREE.Group();
+      bed.userData.key = key;
+      bed.add(lines(grid, THREE.LineSegments, 0.3));
+      bed.add(lines([-hw, -hd, 0, hw, -hd, 0, hw, hd, 0, -hw, hd, 0], THREE.LineLoop, 0.9));
       scene.add(bed);
+      render();
     }
 
     // parts: [{ color: '#RRGGBB', mesh: { positions, indices }, offset: [x, y, z] (optional),
@@ -60,8 +74,7 @@
       if (!box.isEmpty()) {
         const size = box.getSize(new THREE.Vector3());
         const longest = Math.max(size.x, size.y, size.z);
-        if (!bed || Math.abs(longest - lastSize) > lastSize * 0.2) {
-          setBed(Math.max(size.x, size.y));
+        if (Math.abs(longest - lastSize) > lastSize * 0.2) {
           home();
           lastSize = longest;
         }
@@ -97,7 +110,7 @@
 
     new ResizeObserver(resize).observe(container);
     resize();
-    return { setParts, home };
+    return { setParts, setBed, home };
   }
 
   L3D.viewer = { createViewer };

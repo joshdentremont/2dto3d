@@ -556,6 +556,17 @@
       results.push(res);
     }
 
+    // Printer bed fit.
+    {
+      const fit = L3D.model.fitsBed;
+      const cases = [
+        [100, 80, 256, 256, 'fits'], [256, 256, 256, 256, 'fits'], [257, 100, 256, 256, 'no'],
+        [300, 100, 400, 200, 'fits'], [100, 300, 400, 200, 'turn'], [300, 300, 400, 200, 'no'],
+      ];
+      const errors = cases.filter(c => fit(c[0], c[1], c[2], c[3]) !== c[4]).map(c => `${c.join(' ')}: got ${fit(c[0], c[1], c[2], c[3])}`);
+      results.push({ name: 'printer bed fit', ok: !errors.length, errors });
+    }
+
     return results;
   }
 

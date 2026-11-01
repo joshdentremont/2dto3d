@@ -110,6 +110,9 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Smooth edges** turns pixel staircases into smooth curves, while keeping sharp corners
      (where two straight edges at least 3 pixels long meet) sharp.
    - **Remove specks** cleans up noise from compressed images.
+   - **Bed width** and **Bed depth** are your printer's bed (default 256 × 256 mm). The
+     preview draws it to scale, and you get a warning if the print or frame won't fit, or
+     only fits turned 90°. Each part is checked on its own, since they print separately.
    - **Base plate** (optional) adds a backing under the photo or a full rectangle, in a color
      you choose.
    - **Outline** gives the model a shape and fills the empty area inside it with a color you

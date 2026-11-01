@@ -69,6 +69,14 @@
     return { labels: out, W: NW, H: NH, ox, oy };
   }
 
+  // Whether a w x d part fits a bedW x bedD bed: 'fits', 'turn' (only if turned 90 degrees) or
+  // 'no'.
+  function fitsBed(w, d, bedW, bedD) {
+    const within = (a, b, x, y) => a <= x + 0.01 && b <= y + 0.01;
+    if (within(w, d, bedW, bedD)) return 'fits';
+    return within(d, w, bedW, bedD) ? 'turn' : 'no';
+  }
+
   // g: result of contours.trace on traceLabels(...).
   // palette: [{ name, filament: '#RRGGBB', height }]. scale: mm per pixel.
   // settings: { mode: 'flat' | 'layered', thickness, layerHeight, base: { type, thickness, colorIndex } }
@@ -139,5 +147,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, addOutline, outlineGrowth, maxCornerRadius, build };
+  L3D.model = { traceLabels, addOutline, outlineGrowth, maxCornerRadius, fitsBed, build };
 })(globalThis.L3D = globalThis.L3D || {});
