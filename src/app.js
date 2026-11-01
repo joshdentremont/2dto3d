@@ -15,7 +15,7 @@
     stage: $('stage'), canvas: $('imageCanvas'), dropHint: $('dropHint'), loupe: $('loupe'),
     imageTools: $('imageTools'), cropBtn: $('cropBtn'), resetImage: $('resetImage'),
     fileInput: $('fileInput'), fileInput2: $('fileInput2'), replaceBtn: $('replaceBtn'), pickHint: $('pickHint'),
-    viewToggle: $('viewToggle'), palette: $('palette'), paletteEmpty: $('paletteEmpty'),
+    suggestColors: $('suggestColors'), viewToggle: $('viewToggle'), palette: $('palette'), paletteEmpty: $('paletteEmpty'),
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
@@ -77,6 +77,7 @@
       el.dropHint.hidden = true;
       el.replaceBtn.hidden = false;
       el.imageTools.hidden = false;
+      el.suggestColors.disabled = false;
       el.canvas.classList.remove('empty');
       endCrop();
       setView('original');
@@ -319,14 +320,18 @@
       flashRow(existing);
       return;
     }
-    const n = S.palette.length;
-    S.palette.push({
-      id: S.nextId++, rgb, filament: L3D.color.rgbToHex(rgb), name: '', autoName: true,
-      none: false, height: +(1.2 + 0.6 * n).toFixed(2),
-    });
-    renumber();
+    addColor(rgb);
     renderPalette();
     flashRow(S.palette.length - 1);
+    schedule(0);
+  });
+
+  el.suggestColors.addEventListener('click', () => {
+    if (!S.orig) return;
+    const found = L3D.labels.suggestColors(S.orig.data.data, S.orig.w * S.orig.h, S.palette.map(c => c.rgb));
+    if (!found.length) { flashHint('There are no more main colors to add.'); return; }
+    found.forEach(addColor);
+    renderPalette();
     schedule(0);
   });
 
@@ -373,6 +378,14 @@
   }
 
   // ---------- palette ----------
+
+  function addColor(rgb) {
+    S.palette.push({
+      id: S.nextId++, rgb, filament: L3D.color.rgbToHex(rgb), name: '', autoName: true,
+      none: false, height: +(1.2 + 0.6 * S.palette.length).toFixed(2),
+    });
+    renumber();
+  }
 
   // Colours still using an automatic name are numbered 1, 2, 3… in list order, skipping
   // colours the user has renamed, so there are no gaps or duplicates and the newest is last.

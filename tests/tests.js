@@ -503,6 +503,59 @@
       results.push(res);
     }
 
+    // Suggesting colours.
+    {
+      const res = { name: 'suggest colors', errors: [] };
+      const image = (W, H, f) => {
+        const px = new Uint8ClampedArray(W * H * 4);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) px.set(f(x, y), (y * W + x) * 4);
+        return { px, count: W * H };
+      };
+      const WHITE = [255, 255, 255, 255], BLACK = [10, 10, 10, 255], RED = [200, 20, 30, 255], BLUE = [20, 40, 160, 255], CLEAR = [0, 0, 0, 0];
+      const near = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < 30;
+      const expectColors = (name, im, want, existing) => {
+        const got = L3D.labels.suggestColors(im.px, im.count, existing);
+        if (got.length !== want.length || want.some((w, k) => !near(got[k], w))) {
+          res.errors.push(`${name}: ${JSON.stringify(got)}, expected ${JSON.stringify(want.map(w => w.slice(0, 3)))}`);
+        }
+      };
+      // Flat logo: white background, a red block, a blue block.
+      const flat = (x, y) => (x > 20 && x < 80 && y > 10 && y < 40 ? RED : x > 20 && x < 80 && y > 50 && y < 80 ? BLUE : WHITE);
+      expectColors('flat colors, biggest first', image(100, 100, flat), [WHITE, RED, BLUE]);
+      expectColors('solid image', image(50, 50, () => RED), [RED]);
+      expectColors('transparent pixels ignored', image(100, 100, (x, y) => (x < 80 ? CLEAR : RED)), [RED]);
+      expectColors('fully transparent', image(20, 20, () => CLEAR), []);
+
+      // Soft edges: a black shape on white, with a 2 pixel ramp of greys around it.
+      const soft = (x, y) => {
+        const d = Math.max(Math.abs(x - 50), Math.abs(y - 50));
+        const v = d < 25 ? 10 : d >= 27 ? 255 : d === 25 ? 90 : 175;
+        return [v, v, v, 255];
+      };
+      expectColors('soft edges are not colors', image(100, 100, soft), [WHITE, BLACK]);
+
+      // A real grey covering a good share of the image stays.
+      expectColors('real grey kept', image(100, 100, (x, y) => (x < 40 ? WHITE : x < 75 ? BLACK : [128, 128, 128, 255])), [WHITE, BLACK, [128, 128, 128]]);
+
+      // Noise like a JPEG's still gives one color each.
+      const noisy = (x, y) => { const c = x < 50 ? WHITE : RED, n = ((x * 7 + y * 13) % 9) - 4; return [c[0] + n, c[1] + n, c[2] + n, 255]; };
+      const noisyGot = L3D.labels.suggestColors(image(100, 100, noisy).px, 10000);
+      if (noisyGot.length !== 2) res.errors.push(`noisy image: ${JSON.stringify(noisyGot)}`);
+
+      // A small accent color is found.
+      expectColors('small accent', image(100, 100, (x, y) => (x < 5 && y < 20 ? RED : WHITE)), [WHITE, RED]);
+
+      // Already picked colors aren't suggested again, and a second press adds nothing.
+      expectColors('skips existing', image(100, 100, flat), [RED, BLUE], [[255, 255, 255]]);
+      expectColors('nothing left', image(100, 100, flat), [], [[255, 255, 255], [200, 20, 30], [20, 40, 160]]);
+
+      // A photo-like gradient stops at the limit.
+      const many = L3D.labels.suggestColors(image(256, 256, (x, y) => [x, y, (x + y) >> 1, 255]).px, 65536);
+      if (many.length > 8) res.errors.push(`${many.length} colors from a gradient`);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 

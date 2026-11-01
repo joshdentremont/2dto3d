@@ -121,5 +121,64 @@
     return box.w === W && box.h === H ? null : box;
   }
 
-  L3D.labels = { quantize, removeSpecks, trimBox };
+  // Suggesting colours. Colours closer than SUGGEST_SAME_DE count as one, a colour must cover
+  // at least SUGGEST_MIN_SHARE of the image, and at most SUGGEST_SAMPLES pixels are looked at.
+  // A colour under SUGGEST_BLEND_SHARE that lies within SUGGEST_BLEND_DE of the line between
+  // two chosen colours is taken as the soft edge between them, not a colour of its own.
+  const SUGGEST_SAME_DE = 15;
+  const SUGGEST_MIN_SHARE = 0.003;
+  const SUGGEST_SAMPLES = 300000;
+  const SUGGEST_BLEND_SHARE = 0.05;
+  const SUGGEST_BLEND_DE = 6;
+  const SUGGEST_MAX = 8;
+
+  // Distance in CIELAB from colour p to the line segment between colours a and b.
+  function distToBlend(p, a, b) {
+    const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if (!len2) return L3D.color.deltaE(p, a);
+    const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / len2));
+    return L3D.color.deltaE(p, [a[0] + t * d[0], a[1] + t * d[1], a[2] + t * d[2]]);
+  }
+
+  // The image's main colours as [[r, g, b], ...], biggest area first. existing: colours
+  // already picked, which are skipped along with anything too close to them.
+  function suggestColors(rgba, pixelCount, existing) {
+    const step = Math.max(1, Math.ceil(pixelCount / SUGGEST_SAMPLES));
+    const buckets = new Map();
+    let total = 0;
+    for (let i = 0; i < pixelCount; i += step) {
+      const o = i * 4;
+      if (rgba[o + 3] < 128) continue;
+      total++;
+      const key = ((rgba[o] >> 3) << 10) | ((rgba[o + 1] >> 3) << 5) | (rgba[o + 2] >> 3);
+      let b = buckets.get(key);
+      if (!b) buckets.set(key, b = { n: 0, r: 0, g: 0, b: 0 });
+      b.n++; b.r += rgba[o]; b.g += rgba[o + 1]; b.b += rgba[o + 2];
+    }
+    const chosen = (existing || []).map(rgb => rgbToLab(rgb[0], rgb[1], rgb[2]));
+    const found = [];
+    const list = Array.from(buckets.values()).sort((a, b) => b.n - a.n);
+    for (const b of list) {
+      const share = b.n / total;
+      if (share < SUGGEST_MIN_SHARE || found.length === SUGGEST_MAX) break;
+      const rgb = [Math.round(b.r / b.n), Math.round(b.g / b.n), Math.round(b.b / b.n)];
+      const lab = rgbToLab(rgb[0], rgb[1], rgb[2]);
+      if (chosen.some(c => L3D.color.deltaE(lab, c) < SUGGEST_SAME_DE)) continue;
+      let blend = false;
+      if (share < SUGGEST_BLEND_SHARE) {
+        for (let i = 0; i < chosen.length && !blend; i++) {
+          for (let j = i + 1; j < chosen.length && !blend; j++) {
+            blend = distToBlend(lab, chosen[i], chosen[j]) < SUGGEST_BLEND_DE;
+          }
+        }
+      }
+      if (blend) continue;
+      chosen.push(lab);
+      found.push(rgb);
+    }
+    return found;
+  }
+
+  L3D.labels = { quantize, removeSpecks, trimBox, suggestColors };
 })(globalThis.L3D = globalThis.L3D || {});

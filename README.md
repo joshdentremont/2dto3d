@@ -81,6 +81,10 @@ It only routes containers that opt in with `traefik.enable=true`.
 
    **Width** applies to the edited image, so trimming or cropping makes what's left bigger.
 2. **Colors.** Click the image once on each color you want in the model.
+   - Or press **Suggest colors** to add the image's main colors, biggest area first. It skips
+     colors you've already picked and the soft edges between colors, so you can use it at any
+     point, then delete what you don't want or click to add more. It doesn't tick
+     **No material** for you, so a white background is suggested like any other color.
    - Every pixel is assigned to the closest picked color, judged the way the eye sees color.
    - Switch to **Mapped** to see exactly what will be printed, seen from the front, including
      any outline, rounded corners, rectangular base plate and keychain loop. You can still

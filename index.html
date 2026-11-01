@@ -51,8 +51,11 @@
     </div>
 
     <div class="panel">
-      <h2><span class="step">2</span> Colors</h2>
-      <p class="muted" id="paletteEmpty">No colors yet. Click the image to pick the colors you want to print. Every pixel will use the closest picked color.</p>
+      <div class="panel-head">
+        <h2><span class="step">2</span> Colors</h2>
+        <button type="button" class="btn small" id="suggestColors" title="Add the image's main colors to the list" disabled>Suggest colors</button>
+      </div>
+      <p class="muted" id="paletteEmpty">No colors yet. Click the image to pick the colors you want to print, or use Suggest colors. Every pixel will use the closest picked color.</p>
       <ul class="palette" id="palette"></ul>
     </div>
 
