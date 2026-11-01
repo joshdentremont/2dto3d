@@ -15,7 +15,10 @@ To check that the geometry code works, open `tests.html`. It should report that 
 
 ## Running with Docker behind Traefik
 
-The image is `nginx:alpine` serving the files as they are, on port 80 inside the container.
+The image is `nginx:alpine` serving the app on port 80 inside the container. The build combines
+every script listed in `index.html` into one minified `app.min.js` and minifies `styles.css`;
+the repo itself stays as readable source. Node is only used during the build, so it isn't in
+the running image. The tests aren't in the image: open `tests.html` from the repo instead.
 
 Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want. Then pick one of
 the two setups below. Either way, after changing the app, run `docker compose up -d --build`
@@ -250,7 +253,7 @@ will be better.
 | `src/viewer.js` | three.js 3D preview |
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |
 | `vendor/` | three.js r147, OrbitControls and fflate (MIT, see `vendor/LICENSES.md`) |
-| `Dockerfile`, `nginx.conf` | Container image: nginx serving the app |
+| `Dockerfile`, `nginx.conf` | Container image: nginx serving the app, minified at build time |
 | `docker-compose.yml`, `.env.example` | Runs the container behind a Traefik you already run |
 | `docker-compose.traefik.yml` | Optional bundled Traefik, switched on from `.env` |
 
