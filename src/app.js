@@ -90,11 +90,15 @@
 
   // ---------- image panel ----------
 
-  // Where the image sits inside the canvas (CSS pixels).
+  const showingMapped = () => (S.view === 'mapped' || S.hover >= 0) && !!cache.shown;
+
+  // Where the picture sits inside the canvas (CSS pixels). The final shape can be larger than
+  // the image, with an outline or keychain loop added.
   function fitRect() {
     const cw = el.canvas.clientWidth, ch = el.canvas.clientHeight;
-    const k = Math.min(cw / S.orig.w, ch / S.orig.h);
-    const w = S.orig.w * k, h = S.orig.h * k;
+    const pw = showingMapped() ? cache.shown.W : S.orig.w, ph = showingMapped() ? cache.shown.H : S.orig.h;
+    const k = Math.min(cw / pw, ch / ph);
+    const w = pw * k, h = ph * k;
     return { x: (cw - w) / 2, y: (ch - h) / 2, w, h };
   }
 
@@ -110,8 +114,7 @@
     ctx.clearRect(0, 0, cw, ch);
     if (!S.orig) return;
     const r = fitRect();
-    const showMapped = (S.view === 'mapped' || S.hover >= 0) && cache.labels;
-    if (showMapped) {
+    if (showingMapped()) {
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(mappedCanvas(), r.x, r.y, r.w, r.h);
     } else {
@@ -121,18 +124,21 @@
     }
   }
 
-  // The label grid drawn in filament colours: exactly what will be printed.
+  // The final grid drawn in filament colours, seen from the front: exactly what will be
+  // printed, with any outline, keychain loop and rectangular base plate included.
   function mappedCanvas() {
-    const { gw, gh } = cache.grid;
-    const key = cache.labelsKey + '|' + S.palette.map(p => p.filament).join() + '|' + S.hover;
+    const { labels, W: gw, H: gh } = cache.shown;
+    const base = S.palette.find(p => p.id === S.settings.base.colorId);
+    const baseColor = base ? base.filament : '#808080';
+    const key = cache.shownId + '|' + S.palette.map(p => p.filament).join() + '|' + baseColor + '|' + S.hover;
     if (cache.mapped && cache.mappedKey === key) return cache.mapped;
     const c = cache.mapped || document.createElement('canvas');
     c.width = gw;
     c.height = gh;
     const ctx = c.getContext('2d');
     const img = ctx.createImageData(gw, gh);
-    const cols = S.palette.map(p => L3D.color.hexToRgb(p.filament));
-    const labels = cache.labels;
+    // The label after the palette's is the area of a rectangular base plate.
+    const cols = S.palette.map(p => L3D.color.hexToRgb(p.filament)).concat([L3D.color.hexToRgb(baseColor)]);
     for (let i = 0; i < labels.length; i++) {
       const l = labels[i];
       if (l < 0) continue;
@@ -157,13 +163,19 @@
   });
   new ResizeObserver(drawImage).observe(el.canvas);
 
-  // Canvas position -> original image pixel, or null outside the image.
+  // Canvas position -> original image pixel, or null outside the image. In the Mapped view
+  // that includes anything added around the image, such as an outline or keychain loop.
   function imagePixel(e) {
     if (!S.orig) return null;
     const rect = el.canvas.getBoundingClientRect();
     const r = fitRect();
-    const x = Math.floor((e.clientX - rect.left - r.x) / r.w * S.orig.w);
-    const y = Math.floor((e.clientY - rect.top - r.y) / r.h * S.orig.h);
+    let u = (e.clientX - rect.left - r.x) / r.w, v = (e.clientY - rect.top - r.y) / r.h;
+    if (showingMapped()) {
+      const g = cache.shown;
+      u = (u * g.W - g.ox) / cache.grid.gw;
+      v = (v * g.H - g.oy) / cache.grid.gh;
+    }
+    const x = Math.floor(u * S.orig.w), y = Math.floor(v * S.orig.h);
     if (x < 0 || y < 0 || x >= S.orig.w || y >= S.orig.h) return null;
     return { x, y };
   }
@@ -413,6 +425,15 @@
     }, delay);
   }
 
+  // Sets what the Mapped view shows, and redraws.
+  function showGrid(grid) {
+    if (cache.shown !== grid) {
+      cache.shown = grid;
+      cache.shownId = (cache.shownId || 0) + 1;
+    }
+    drawImage();
+  }
+
   function gridSize() {
     const s = S.settings;
     let gw = Math.max(2, Math.round(s.widthMm / s.detail));
@@ -448,7 +469,6 @@
       cache.labelsKey = labelsKey;
       updateCoverage();
     }
-    drawImage();
 
     const warnings = [];
     if (capped) warnings.push(`Detail was reduced to ${scale.toFixed(2)} mm to keep the model a manageable size.`);
@@ -456,6 +476,7 @@
     const usable = S.palette.some(c => !c.none);
     if (!usable) {
       S.model = null;
+      showGrid({ labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 });
       viewer.setParts([]);
       el.viewerMsg.hidden = false;
       el.viewerMsg.textContent = S.palette.length
@@ -478,22 +499,24 @@
     }
     const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
     if (cache.traceKey !== traceKey) {
-      let grid = { labels: cache.labels, W: gw, H: gh };
+      let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
       if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
       let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, S.palette.length, s);
+      let { ox, oy } = grid;
       cache.loopMissed = false;
       if (loopOn) {
         const r = L3D.keychain.addLoop(labels, W, H, {
           side: s.loop.side, outerPx: s.loop.outer / scale, innerPx: s.loop.hole / scale, label: loopIdx,
         });
         // A loop that doesn't touch the logo would print as a loose ring, so leave it out.
-        if (r.connected) { labels = r.labels; W = r.W; H = r.H; }
+        if (r.connected) { labels = r.labels; W = r.W; H = r.H; ox += r.ox; oy += r.oy; }
         cache.loopMissed = !r.connected;
       }
-      cache.finalGrid = { labels, W, H };
+      cache.finalGrid = { labels, W, H, ox, oy };
       cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
       cache.traceKey = traceKey;
     }
+    showGrid(cache.finalGrid);
     if (loopOn && cache.loopMissed) {
       warnings.push(`The keychain loop can't reach the logo from the ${s.loop.side}, so it isn't attached. Try another side, or a larger loop.`);
     }

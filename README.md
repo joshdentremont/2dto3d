@@ -73,7 +73,9 @@ It only routes containers that opt in with `traefik.enable=true`.
    all work. `samples/sample-logo.svg` is there to try.
 2. **Colors.** Click the image once on each color you want in the model.
    - Every pixel is assigned to the closest picked color, judged the way the eye sees color.
-   - Switch to **Mapped** to see exactly what will be printed.
+   - Switch to **Mapped** to see exactly what will be printed, seen from the front, including
+     any outline, rounded corners, rectangular base plate and keychain loop. You can still
+     click to pick colors there, anywhere on the image.
    - Hover over a color in the list to highlight its area.
    - The color box next to each swatch sets the filament color, so the preview and the
      exported files can match the filament you actually own.

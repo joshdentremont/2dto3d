@@ -400,6 +400,24 @@
       results.push(res);
     }
 
+    // Offsets: where the image ends up inside a grid enlarged by an outline or a loop.
+    {
+      const res = { name: 'image offset in enlarged grids', errors: [] };
+      const g0 = grid(['b...', '....', '....']); // a marker in the image's top left pixel
+      const at = (g, x, y) => g.labels[y * g.W + x];
+      const oval = L3D.model.addOutline(g0.labels, g0.W, g0.H, 0, 'oval', 0);
+      if (at(oval, oval.ox, oval.oy) !== 1) res.errors.push('oval offset is wrong');
+      const rounded = L3D.model.addOutline(g0.labels, g0.W, g0.H, 0, 'rounded', 0);
+      if (rounded.ox !== 0 || rounded.oy !== 0) res.errors.push('rounded corners should not move the image');
+      const block = grid(['baaaaaaa', 'aaaaaaaa', 'aaaaaaaa']);
+      for (const side of ['top', 'bottom', 'left', 'right']) {
+        const r = L3D.keychain.addLoop(block.labels, block.W, block.H, { side, outerPx: 6, innerPx: 3, label: 0 });
+        if (at(r, r.ox, r.oy) !== 1) res.errors.push(`loop on the ${side}: offset is wrong`);
+      }
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 

@@ -19,7 +19,8 @@
   }
 
   // Outline shape filled with `fill` (a palette index) wherever the image is empty, so it is
-  // the same height as that colour.
+  // the same height as that colour. Returns { labels, W, H, ox, oy }: (ox, oy) is where the
+  // image starts in the new grid.
   //   shape 'oval':    the smallest ellipse containing the image. It passes through the
   //                    image's corners, with semi-axes W/√2 and H/√2 (a circle if square).
   //                    The grid is enlarged to fit, with the image centred.
@@ -38,7 +39,7 @@
           out[y * W + x] = qx * qx + qy * qy > r * r ? -1 : l >= 0 ? l : fill;
         }
       }
-      return { labels: out, W, H };
+      return { labels: out, W, H, ox: 0, oy: 0 };
     }
 
     const a = W / Math.SQRT2, b = H / Math.SQRT2;
@@ -58,7 +59,7 @@
         else if (inImage || dx * dx + dy * dy <= 1) out[y * NW + x] = fill;
       }
     }
-    return { labels: out, W: NW, H: NH };
+    return { labels: out, W: NW, H: NH, ox, oy };
   }
 
   // g: result of contours.trace on traceLabels(...).

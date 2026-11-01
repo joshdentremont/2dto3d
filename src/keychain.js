@@ -7,7 +7,8 @@
   // labels: Int16Array, W x H (row-major, top row first, -1 = empty).
   // opts: { side: 'top' | 'bottom' | 'left' | 'right', outerPx, innerPx (diameters in grid
   //         pixels), label (palette index for the loop) }
-  // Returns { labels, W, H, connected } with the grid padded as needed to fit the loop.
+  // Returns { labels, W, H, connected, ox, oy } with the grid padded as needed to fit the loop;
+  // (ox, oy) is where the old grid now starts.
   function addLoop(labels, W, H, opts) {
     let x0 = W, y0 = H, x1 = -1, y1 = -1;
     for (let y = 0; y < H; y++) {
@@ -19,7 +20,7 @@
         if (y > y1) y1 = y;
       }
     }
-    if (x1 < 0) return { labels, W, H, connected: false };
+    if (x1 < 0) return { labels, W, H, connected: false, ox: 0, oy: 0 };
 
     const Ro = opts.outerPx / 2, Ri = opts.innerPx / 2;
     const side = opts.side;
@@ -105,7 +106,7 @@
         }
       }
     }
-    return { labels: out, W: NW, H: NH, connected };
+    return { labels: out, W: NW, H: NH, connected, ox: pad.l, oy: pad.t };
   }
 
   L3D.keychain = { addLoop };
