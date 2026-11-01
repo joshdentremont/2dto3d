@@ -5,8 +5,6 @@
   const MAX_GRID = 1600;        // longest side of the print grid, in pixels
   const MAX_ORIGINAL = 2048;    // longest side kept for display and picking
   const SAME_COLOR_DE = 3;      // picks closer than this (CIELAB ΔE) select the existing colour
-  const CHECK_LIMIT = 1500000;  // skip the watertight check above this many triangles
-  const MIN_FRAME_LIP = 0.4;    // thinnest lip (mm) left at the front of a frame
   const MIN_CROP = 4;           // smallest crop drag (CSS pixels); anything less is a click
   const PICK_HINT = 'Click the image to add each color you want in the model. Every pixel uses the closest picked color.';
 
@@ -613,23 +611,76 @@
 
   // ---------- build pipeline ----------
 
-  let timer = 0;
+  let timer = 0, building = false, dirty = false;
+  let worker = null, local = null;
+
+  // Builds run in a background worker, so the page stays usable during them. A browser may not
+  // allow one, as with a page opened from a file, or it may fail to load. Then they run on the
+  // page, which freezes while they do.
+  function buildOnPage() {
+    if (worker) worker.terminate();
+    worker = null;
+    local = L3D.pipeline.create();
+    cache.imageSent = false;
+  }
+  try {
+    worker = new Worker('src/worker.js');
+    worker.onmessage = event => finishBuild(event.data);
+    worker.onerror = event => {
+      event.preventDefault();
+      console.warn('The background worker failed, so builds will run on the page.', event.message);
+      buildOnPage();
+      building = false;
+      if (S.src) schedule(0);
+    };
+  } catch (err) {
+    buildOnPage();
+  }
+
   function schedule(delay) {
     clearTimeout(timer);
-    timer = setTimeout(() => {
-      el.busy.hidden = false;
-      // Let the "Building…" badge paint before the (synchronous) work starts.
-      setTimeout(() => {
-        try { rebuild(); } catch (err) { console.error(err); showError(err); }
-        el.busy.hidden = true;
-      }, 20);
-    }, delay);
+    dirty = true;
+    timer = setTimeout(startBuild, delay);
+  }
+
+  // Only one build runs at a time. If something changes meanwhile, finishBuild starts another.
+  function startBuild() {
+    if (building || !S.src) return;
+    building = true;
+    dirty = false;
+    el.busy.hidden = false;
+    // Let the "Building…" badge paint first, for when the build holds up the page.
+    setTimeout(() => {
+      try {
+        const job = makeJob();
+        if (worker) worker.postMessage(job);
+        else finishBuild({ result: local.run(job) });
+      } catch (err) {
+        console.error(err);
+        finishBuild({ error: err.message });
+      }
+    }, 20);
+  }
+
+  // message: { result } or { error }. A build that's already out of date isn't shown.
+  function finishBuild(message) {
+    building = false;
+    if (dirty) { schedule(0); return; }
+    el.busy.hidden = true;
+    try {
+      if (message.error) throw new Error(message.error);
+      showBuild(message.result);
+    } catch (err) {
+      console.error(err);
+      showError(err);
+    }
   }
 
   // Sets what the Mapped view shows, and redraws.
-  function showGrid(grid) {
-    if (cache.shown !== grid) {
+  function showGrid(grid, key) {
+    if (cache.shownKey !== key) {
       cache.shown = grid;
+      cache.shownKey = key;
       cache.shownId = (cache.shownId || 0) + 1;
     }
     drawImage();
@@ -653,170 +704,51 @@
     return { gw, gh, scale: imageWidth / gw, capped, growth };
   }
 
-  function rebuild() {
-    if (!S.src) return;
-    const s = S.settings;
+  // What the pipeline needs for the current settings. Resampling needs a canvas, so it happens
+  // here, and the pixels are only sent when they've changed.
+  function makeJob() {
     const { gw, gh, scale, capped, growth } = gridSize();
     el.heightMm.textContent = (gh * scale * growth).toFixed(1) + ' mm';
-
     const gridKey = gw + 'x' + gh;
     if (cache.gridKey !== gridKey) {
       cache.grid = { gw, gh, data: L3D.raster.resample(S.src, gw, gh) };
       cache.gridKey = gridKey;
+      cache.imageSent = false;
     }
-
-    const labelsKey = gridKey + '|' + S.palette.map(p => p.rgb.join(',') + (p.none ? 'x' : '')).join(';') + '|' + s.speckMm2;
-    if (cache.labelsKey !== labelsKey) {
-      const q = L3D.labels.quantize(cache.grid.data.data, gw * gh, S.palette);
-      const minPx = Math.round(s.speckMm2 / (scale * scale));
-      cache.labels = L3D.labels.removeSpecks(q.labels, gw, gh, minPx);
-      cache.counts = q.counts;
-      cache.labelsKey = labelsKey;
-      updateCoverage();
+    const job = { gw, gh, scale, capped, palette: S.palette, settings: S.settings };
+    if (!cache.imageSent) {
+      job.image = cache.grid.data.data;
+      cache.imageSent = true;
     }
+    return job;
+  }
 
-    const warnings = [];
-    if (capped) warnings.push(`Detail was reduced to ${scale.toFixed(2)} mm to keep the model a manageable size.`);
-
-    const usable = S.palette.some(c => !c.none);
-    if (!usable) {
-      S.model = null;
-      showGrid({ labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 });
+  // Shows a finished build.
+  function showBuild(r) {
+    cache.counts = r.counts;
+    updateCoverage();
+    showGrid(r.shown, r.shownKey);
+    S.model = r.model;
+    S.frame = r.frame;
+    S.openEdges = r.openEdges;
+    if (!r.model) {
       viewer.setParts([]);
       el.viewerMsg.hidden = false;
       el.viewerMsg.textContent = S.palette.length
         ? 'Every picked color is set to “No material”. Pick or enable at least one color to print.'
         : 'Click the image to pick the colors you want to print.';
-      showOutput(warnings);
+      showOutput(r.warnings);
       return;
     }
-
-    const loopIdx = S.palette.findIndex(c => c.id === s.loop.colorId && !c.none);
-    const loopOn = s.loop.on && loopIdx >= 0;
-    const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
-    const outlineIdx = S.palette.findIndex(c => c.id === s.outline.colorId && !c.none);
-    const outlineOn = s.outline.shape !== 'none' && outlineIdx >= 0;
-    const maxRadius = L3D.model.maxCornerRadius(gw, gh) * scale;
-    const radius = Math.min(s.outline.radius, maxRadius);
-    const outlineKey = outlineOn ? [s.outline.shape, outlineIdx, s.outline.shape === 'rounded' ? radius : ''].join() : '';
-    if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
-      warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
-    }
-    const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
-    if (cache.traceKey !== traceKey) {
-      let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
-      if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
-      let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, S.palette.length, s);
-      let { ox, oy } = grid;
-      cache.loopMissed = false;
-      if (loopOn) {
-        const r = L3D.keychain.addLoop(labels, W, H, {
-          side: s.loop.side, outerPx: s.loop.outer / scale, innerPx: s.loop.hole / scale, label: loopIdx,
-        });
-        // A loop that doesn't touch the logo would print as a loose ring, so leave it out.
-        if (r.connected) { labels = r.labels; W = r.W; H = r.H; ox += r.ox; oy += r.oy; }
-        cache.loopMissed = !r.connected;
-      }
-      cache.finalGrid = { labels, W, H, ox, oy };
-      cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
-      cache.traceKey = traceKey;
-    }
-    showGrid(cache.finalGrid);
-    if (loopOn && cache.loopMissed) {
-      warnings.push(`The keychain loop can't reach the logo from the ${s.loop.side}, so it isn't attached. Try another side, or a larger loop.`);
-    }
-
-    const baseIdx = Math.max(0, S.palette.findIndex(c => c.id === s.base.colorId));
-    const model = L3D.model.build(cache.graph, S.palette, {
-      mode: s.mode, thickness: s.thickness, layerHeight: s.layerHeight,
-      base: { type: s.base.type, thickness: s.base.thickness, colorIndex: baseIdx },
-    }, scale);
-    S.model = model;
-    warnings.push(...model.warnings);
-
-    // Frame: a separate part shaped around the print.
-    S.frame = null;
-    if (s.frame.on && model.parts.length) {
-      const printBox = L3D.mesh.bounds([model.body]);
-      const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
-      const f = s.frame;
-      const head = f.pocket ? f.head : 0;
-      // The rounding can't reach past the border or the frame's depth, or off the lip.
-      const outerRadius = Math.min(f.outerRadius, f.border, f.depth);
-      if (outerRadius < f.outerRadius) warnings.push(`The outer edge radius was limited to ${outerRadius} mm, the size of the frame's border or depth.`);
-      // Always leave some lip at the front.
-      const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
-      if (lipDepth < f.lipDepth) {
-        warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
-      }
-      const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
-      if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
-      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius, f.stand, f.standWidth].join('|');
-      if (cache.frameKey !== frameKey) {
-        const fg = cache.finalGrid;
-        const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
-          border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
-          head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, stand: f.stand, standWidth: f.standWidth, smooth: s.smooth,
-        }, scale);
-        cache.frameMesh = built.mesh;
-        cache.framePocket = built.pocket;
-        cache.frameBumps = built.bumps;
-        cache.frameStand = built.stand;
-        cache.frameKey = frameKey;
-      }
-      if (cache.framePocket === 'border') {
-        const need = L3D.frame.pocketBorder(head);
-        warnings.push(f.border >= need
-          ? 'The hanging pocket doesn\'t fit at the top centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean top edge.'
-          : `The hanging pocket doesn't fit in the top of the frame, so it was left out. A ${head} mm head needs a border of at least ${need} mm.`);
-      } else if (cache.framePocket === 'thin') {
-        warnings.push(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
-      }
-      // The stand is sized to its slot, so it's left out along with the slot.
-      let stand = null;
-      if (cache.frameStand.fit === 'ok') {
-        const box = L3D.mesh.bounds([cache.frameMesh]), frameHeight = box.max[1] - box.min[1];
-        stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, cache.frameStand));
-        const autoLength = L3D.frame.standReach(frameHeight);
-        el.frameStandLength.placeholder = autoLength.toFixed(0);
-        if (cache.frameStand.width < f.standWidth - 0.01) warnings.push(`The stand was narrowed to ${cache.frameStand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
-        const lean = Math.ceil(L3D.frame.minLean(frameHeight, f.depth));
-        if (f.standAngle < lean) warnings.push(`At ${f.standAngle}° the frame may tip forwards, because it's deep for its height. A lean angle of at least ${lean}° keeps its balance behind the edge it stands on.`);
-        const need = Math.ceil(L3D.frame.minReach(frameHeight, f.depth, f.standAngle));
-        if ((f.standLength || autoLength) < need) warnings.push(`With a stand this short the frame may tip backwards. A stand length of at least ${need} mm keeps its balance in front of the stand's end.`);
-      } else if (cache.frameStand.fit === 'border') {
-        const need = L3D.frame.standBorder();
-        warnings.push(f.border >= need
-          ? 'The stand doesn\'t fit at the bottom centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean bottom edge.'
-          : `The stand doesn't fit in the bottom of the frame, so it was left out. It needs a border of at least ${need} mm.`);
-      } else if (cache.frameStand.fit === 'thin') {
-        warnings.push(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
-      }
-      if (printDepth > lipDepth) {
-        warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
-      } else if (!cache.frameBumps) {
-        warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
-      }
-      el.frameHowTo.textContent = 'Print it as exported, face down, in any color. Then ' + (cache.frameBumps
+    if (r.frame) {
+      el.frameHowTo.textContent = 'Print it as exported, face down, in any color. Then ' + (r.frame.bumps
         ? 'push your print into the back of the frame, face first, until it snaps past the bumps.'
         : 'put your print into the back of the frame, face first, and glue or tape it in place.');
-      S.frame = { mesh: cache.frameMesh, stand, depth: f.depth, lipDepth, printDepth };
+      if (r.frame.standLength) el.frameStandLength.placeholder = r.frame.standLength.toFixed(0);
     }
-
-    // Each part has to fit on its own: they're printed separately.
-    const checkBed = (what, meshes) => {
-      const b = L3D.mesh.bounds(meshes), w = b.max[0] - b.min[0], d = b.max[1] - b.min[1];
-      const fit = L3D.model.fitsBed(w, d, s.bedWidth, s.bedDepth);
-      if (fit === 'no') warnings.push(`The ${what} is ${w.toFixed(1)} × ${d.toFixed(1)} mm, too big for the ${s.bedWidth} × ${s.bedDepth} mm bed.`);
-      else if (fit === 'turn') warnings.push(`The ${what} only fits the bed turned 90°, so rotate it in your slicer.`);
-    };
-    if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
-    if (S.frame) checkBed('frame', [S.frame.mesh]);
-    if (S.frame && S.frame.stand) checkBed('stand', [S.frame.stand]);
-
-    el.viewerMsg.hidden = model.parts.length > 0;
+    el.viewerMsg.hidden = r.model.parts.length > 0;
     showParts();
-    showOutput(warnings);
+    showOutput(r.warnings);
   }
 
   // Puts the model in the 3D view. A frame goes next to the print, 10 mm to the right, as it
@@ -867,10 +799,8 @@
     const b = L3D.mesh.bounds(m.parts.map(p => p.mesh));
     const tris = m.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0);
     let check = '';
-    if (tris <= CHECK_LIMIT) {
-      const open = m.parts.reduce((a, p) => a + L3D.mesh.openEdges(p.mesh), 0) + L3D.mesh.openEdges(m.body) +
-        (S.frame ? L3D.mesh.openEdges(S.frame.mesh) : 0) + (stand ? L3D.mesh.openEdges(stand) : 0);
-      check = open ? `<span class="bad">✗ ${open} open edges</span>` : '<span class="ok">✓ watertight</span>';
+    if (S.openEdges !== null) {
+      check = S.openEdges ? `<span class="bad">✗ ${S.openEdges} open edges</span>` : '<span class="ok">✓ watertight</span>';
     }
     const dim = i => (b.max[i] - b.min[i]).toFixed(1);
     el.stats.innerHTML = `${dim(0)} × ${dim(1)} × ${dim(2)} mm · ${tris.toLocaleString()} triangles ${check ? '· ' + check : ''}`;

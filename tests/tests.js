@@ -647,6 +647,78 @@
       results.push(res);
     }
 
+    // The build pipeline, as the page or the worker runs it.
+    {
+      const res = { name: 'build pipeline', errors: [] };
+      const gw = 40, gh = 30, scale = 1;
+      // Left half red, right half blue. `flip` swaps them, for a new image of the same size.
+      const pixels = flip => {
+        const rgba = new Uint8ClampedArray(gw * gh * 4);
+        for (let i = 0; i < gw * gh; i++) {
+          const left = (i % gw < gw / 2) !== !!flip;
+          rgba.set(left ? [255, 0, 0, 255] : [0, 0, 255, 255], i * 4);
+        }
+        return rgba;
+      };
+      const palette = [
+        { id: 1, rgb: [255, 0, 0], filament: '#FF0000', name: 'Red', none: false, height: 1 },
+        { id: 2, rgb: [0, 0, 255], filament: '#0000FF', name: 'Blue', none: false, height: 2 },
+      ];
+      const settings = {
+        mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: false, speckMm2: 0, bedWidth: 256, bedDepth: 256,
+        base: { type: 'none', thickness: 1, colorId: null },
+        loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+        outline: { shape: 'none', radius: 5, colorId: null },
+        frame: {
+          on: true, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, pocket: false, head: 5, pocketDepth: 0,
+          outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 12, standLength: 0,
+        },
+      };
+      const job = (over, image) => Object.assign({ gw, gh, scale, capped: false, palette, settings }, over, image ? { image } : {});
+      const p = L3D.pipeline.create();
+      const first = p.run(job({}, pixels()));
+      if (!first.model || first.model.parts.length !== 2) res.errors.push('expected two parts');
+      if (first.counts[0] !== 600 || first.counts[1] !== 600) res.errors.push(`counts ${first.counts}`);
+      if (first.openEdges !== 0) res.errors.push(`${first.openEdges} open edges`);
+      if (!first.frame || !first.frame.stand) res.errors.push('no frame and stand');
+      else if (!(first.frame.standLength >= 30)) res.errors.push(`stand length ${first.frame.standLength}`);
+      if (first.warnings.length) res.errors.push(`warnings: ${first.warnings.join(' ')}`);
+
+      // Everything has to survive being posted between threads: no functions or Maps.
+      const plain = (v, path) => {
+        if (typeof v === 'function' || v instanceof Map || v instanceof Set) res.errors.push(`${path} can't be posted`);
+        if (v && typeof v === 'object' && !ArrayBuffer.isView(v)) for (const k of Object.keys(v)) plain(v[k], `${path}.${k}`);
+      };
+      plain(first, 'result');
+
+      // The pixels are only sent once, and unchanged inputs reuse earlier steps.
+      const thicker = p.run(job({ settings: Object.assign({}, settings, { thickness: 3 }) }));
+      if (thicker.shownKey !== first.shownKey) res.errors.push('thickness changed the Mapped view');
+      if (thicker.frame.mesh === undefined || !close(L3D.mesh.bounds(thicker.model.parts.map(q => q.mesh)).max[2], 3)) res.errors.push('thickness ignored');
+
+      // A new image of the same size is not mistaken for the old one.
+      const flipped = p.run(job({}, pixels(true)));
+      if (flipped.shownKey === first.shownKey) res.errors.push('new image kept the old grid');
+      if (flipped.shown.labels[0] !== 1) res.errors.push(`new image's first pixel is label ${flipped.shown.labels[0]}`);
+
+      // Warnings come through, as do the settings that cause them.
+      const tiny = p.run(job({ settings: Object.assign({}, settings, { bedWidth: 20, bedDepth: 20 }) }));
+      if (!tiny.warnings.some(w => w.includes('too big'))) res.errors.push(`no bed warning: ${tiny.warnings}`);
+      const big = p.run(job({ capped: true }));
+      if (!big.warnings.some(w => w.includes('Detail was reduced'))) res.errors.push('no detail warning');
+
+      // Nothing left to print.
+      const none = p.run(job({ palette: palette.map(c => Object.assign({}, c, { none: true })) }));
+      if (none.model !== null || none.frame !== null || none.openEdges !== null) res.errors.push('built with no materials');
+      if (!none.shown || none.shownKey === flipped.shownKey) res.errors.push('no grid with no materials');
+
+      // A second pipeline, as after a worker fails, starts clean from the pixels.
+      const fresh = L3D.pipeline.create().run(job({}, pixels()));
+      if (fresh.counts[0] !== 600 || !fresh.model) res.errors.push('a fresh pipeline did not build');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     // Printer bed fit.
     {
       const fit = L3D.model.fitsBed;

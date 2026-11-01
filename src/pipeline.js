@@ -1,0 +1,175 @@
+// The build: from the image's pixels and the settings to printable parts and warnings. It never
+// touches the page, so it can run in a background worker (src/worker.js) or on the page itself.
+(function (L3D) {
+  'use strict';
+
+  const MIN_FRAME_LIP = 0.4;    // thinnest lip (mm) left at the front of a frame
+  const CHECK_LIMIT = 1500000;  // skip the watertight check above this many triangles
+
+  // A pipeline remembers its results and only redoes the steps whose inputs have changed.
+  function create() {
+    const cache = {};
+    let imageId = 0;
+
+    // job: { gw, gh, scale, capped, palette, settings }, plus image (RGBA pixels, gw x gh)
+    // whenever they've changed. Returns { counts, shown, shownKey, warnings, model, frame,
+    // openEdges }. shown is the grid for the Mapped view, and shownKey changes when it does.
+    // model and frame are null if there's nothing to build. openEdges is null if the model
+    // is too big to check. All of it can be posted between threads.
+    function run(job) {
+      const { gw, gh, scale, capped, palette, settings: s } = job;
+      if (job.image) {
+        cache.image = job.image;
+        imageId++;
+      }
+
+      const labelsKey = imageId + '|' + gw + 'x' + gh + '|' + palette.map(p => p.rgb.join(',') + (p.none ? 'x' : '')).join(';') + '|' + s.speckMm2;
+      if (cache.labelsKey !== labelsKey) {
+        const q = L3D.labels.quantize(cache.image, gw * gh, palette);
+        const minPx = Math.round(s.speckMm2 / (scale * scale));
+        cache.labels = L3D.labels.removeSpecks(q.labels, gw, gh, minPx);
+        cache.counts = q.counts;
+        cache.labelsKey = labelsKey;
+      }
+
+      const warnings = [];
+      if (capped) warnings.push(`Detail was reduced to ${scale.toFixed(2)} mm to keep the model a manageable size.`);
+
+      if (!palette.some(c => !c.none)) {
+        return {
+          counts: cache.counts, shown: { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 }, shownKey: labelsKey,
+          warnings, model: null, frame: null, openEdges: null,
+        };
+      }
+
+      const loopIdx = palette.findIndex(c => c.id === s.loop.colorId && !c.none);
+      const loopOn = s.loop.on && loopIdx >= 0;
+      const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
+      const outlineIdx = palette.findIndex(c => c.id === s.outline.colorId && !c.none);
+      const outlineOn = s.outline.shape !== 'none' && outlineIdx >= 0;
+      const maxRadius = L3D.model.maxCornerRadius(gw, gh) * scale;
+      const radius = Math.min(s.outline.radius, maxRadius);
+      const outlineKey = outlineOn ? [s.outline.shape, outlineIdx, s.outline.shape === 'rounded' ? radius : ''].join() : '';
+      if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
+        warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
+      }
+      const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
+      if (cache.traceKey !== traceKey) {
+        let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
+        if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
+        let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, palette.length, s);
+        let { ox, oy } = grid;
+        cache.loopMissed = false;
+        if (loopOn) {
+          const r = L3D.keychain.addLoop(labels, W, H, {
+            side: s.loop.side, outerPx: s.loop.outer / scale, innerPx: s.loop.hole / scale, label: loopIdx,
+          });
+          // A loop that doesn't touch the logo would print as a loose ring, so leave it out.
+          if (r.connected) { labels = r.labels; W = r.W; H = r.H; ox += r.ox; oy += r.oy; }
+          cache.loopMissed = !r.connected;
+        }
+        cache.finalGrid = { labels, W, H, ox, oy };
+        cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
+        cache.traceKey = traceKey;
+      }
+      if (loopOn && cache.loopMissed) {
+        warnings.push(`The keychain loop can't reach the logo from the ${s.loop.side}, so it isn't attached. Try another side, or a larger loop.`);
+      }
+
+      const baseIdx = Math.max(0, palette.findIndex(c => c.id === s.base.colorId));
+      const model = L3D.model.build(cache.graph, palette, {
+        mode: s.mode, thickness: s.thickness, layerHeight: s.layerHeight,
+        base: { type: s.base.type, thickness: s.base.thickness, colorIndex: baseIdx },
+      }, scale);
+      warnings.push(...model.warnings);
+
+      // Frame: a separate part shaped around the print.
+      let frame = null;
+      if (s.frame.on && model.parts.length) {
+        const printBox = L3D.mesh.bounds([model.body]);
+        const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
+        const f = s.frame;
+        const head = f.pocket ? f.head : 0;
+        // The rounding can't reach past the border or the frame's depth, or off the lip.
+        const outerRadius = Math.min(f.outerRadius, f.border, f.depth);
+        if (outerRadius < f.outerRadius) warnings.push(`The outer edge radius was limited to ${outerRadius} mm, the size of the frame's border or depth.`);
+        // Always leave some lip at the front.
+        const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
+        if (lipDepth < f.lipDepth) {
+          warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
+        }
+        const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
+        if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
+        const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius, f.stand, f.standWidth].join('|');
+        if (cache.frameKey !== frameKey) {
+          const fg = cache.finalGrid;
+          const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
+            border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
+            head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, stand: f.stand, standWidth: f.standWidth, smooth: s.smooth,
+          }, scale);
+          cache.frameMesh = built.mesh;
+          cache.framePocket = built.pocket;
+          cache.frameBumps = built.bumps;
+          cache.frameStand = built.stand;
+          cache.frameKey = frameKey;
+        }
+        if (cache.framePocket === 'border') {
+          const need = L3D.frame.pocketBorder(head);
+          warnings.push(f.border >= need
+            ? 'The hanging pocket doesn\'t fit at the top centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean top edge.'
+            : `The hanging pocket doesn't fit in the top of the frame, so it was left out. A ${head} mm head needs a border of at least ${need} mm.`);
+        } else if (cache.framePocket === 'thin') {
+          warnings.push(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
+        }
+        // The stand is sized to its slot, so it's left out along with the slot.
+        let stand = null, standLength = 0;
+        if (cache.frameStand.fit === 'ok') {
+          const box = L3D.mesh.bounds([cache.frameMesh]), frameHeight = box.max[1] - box.min[1];
+          stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, cache.frameStand));
+          standLength = L3D.frame.standReach(frameHeight);
+          if (cache.frameStand.width < f.standWidth - 0.01) warnings.push(`The stand was narrowed to ${cache.frameStand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
+          const lean = Math.ceil(L3D.frame.minLean(frameHeight, f.depth));
+          if (f.standAngle < lean) warnings.push(`At ${f.standAngle}° the frame may tip forwards, because it's deep for its height. A lean angle of at least ${lean}° keeps its balance behind the edge it stands on.`);
+          const need = Math.ceil(L3D.frame.minReach(frameHeight, f.depth, f.standAngle));
+          if ((f.standLength || standLength) < need) warnings.push(`With a stand this short the frame may tip backwards. A stand length of at least ${need} mm keeps its balance in front of the stand's end.`);
+        } else if (cache.frameStand.fit === 'border') {
+          const need = L3D.frame.standBorder();
+          warnings.push(f.border >= need
+            ? 'The stand doesn\'t fit at the bottom centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean bottom edge.'
+            : `The stand doesn't fit in the bottom of the frame, so it was left out. It needs a border of at least ${need} mm.`);
+        } else if (cache.frameStand.fit === 'thin') {
+          warnings.push(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
+        }
+        if (printDepth > lipDepth) {
+          warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
+        } else if (!cache.frameBumps) {
+          warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
+        }
+        frame = { mesh: cache.frameMesh, stand, standLength, bumps: cache.frameBumps, depth: f.depth, lipDepth, printDepth };
+      }
+
+      // Each part has to fit on its own: they're printed separately.
+      const checkBed = (what, meshes) => {
+        const b = L3D.mesh.bounds(meshes), w = b.max[0] - b.min[0], d = b.max[1] - b.min[1];
+        const fit = L3D.model.fitsBed(w, d, s.bedWidth, s.bedDepth);
+        if (fit === 'no') warnings.push(`The ${what} is ${w.toFixed(1)} × ${d.toFixed(1)} mm, too big for the ${s.bedWidth} × ${s.bedDepth} mm bed.`);
+        else if (fit === 'turn') warnings.push(`The ${what} only fits the bed turned 90°, so rotate it in your slicer.`);
+      };
+      if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
+      if (frame) checkBed('frame', [frame.mesh]);
+      if (frame && frame.stand) checkBed('stand', [frame.stand]);
+
+      let openEdges = null;
+      if (model.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0) <= CHECK_LIMIT) {
+        const meshes = model.parts.map(p => p.mesh).concat(model.body, frame ? frame.mesh : [], frame && frame.stand ? frame.stand : []);
+        openEdges = meshes.reduce((a, mesh) => a + L3D.mesh.openEdges(mesh), 0);
+      }
+
+      return { counts: cache.counts, shown: cache.finalGrid, shownKey: traceKey, warnings, model, frame, openEdges };
+    }
+
+    return { run };
+  }
+
+  L3D.pipeline = { create };
+})(globalThis.L3D = globalThis.L3D || {});

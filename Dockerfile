@@ -20,10 +20,18 @@ RUN scripts=$(sed -n 's/.*<script src="\([^"]*\)".*/\1/p' index.html) \
  && cleancss -o styles.min.css styles.css \
  && mv styles.min.css styles.css
 
+# The background worker can't share app.min.js, which needs a page, so it gets its own file.
+# Its importScripts line gives the files, which are then built in instead of loaded.
+RUN scripts=$(sed -n "s/^importScripts(\(.*\));$/\1/p" src/worker.js | tr -d "'," | sed 's#\.\./##g') \
+ && test -n "$scripts" \
+ && sed -i '/^importScripts(/d' src/worker.js \
+ && terser $scripts src/worker.js --compress --mangle --comments /@license/ --output worker.min.js
+
 FROM nginx:alpine
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/index.html /app/styles.css /app/app.min.js /usr/share/nginx/html/
+COPY --from=build /app/worker.min.js /usr/share/nginx/html/src/worker.js
 COPY vendor/LICENSES.md /usr/share/nginx/html/LICENSES.md
 COPY samples/ /usr/share/nginx/html/samples/
 

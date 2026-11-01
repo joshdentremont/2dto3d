@@ -16,9 +16,10 @@ To check that the geometry code works, open `tests.html`. It should report that 
 ## Running with Docker behind Traefik
 
 The image is `nginx:alpine` serving the app on port 80 inside the container. The build combines
-every script listed in `index.html` into one minified `app.min.js` and minifies `styles.css`;
-the repo itself stays as readable source. Node is only used during the build, so it isn't in
-the running image. The tests aren't in the image: open `tests.html` from the repo instead.
+every script listed in `index.html` into one minified `app.min.js` and minifies `styles.css`.
+The background worker gets its own minified file, from the list in `src/worker.js`. The repo
+itself stays as readable source. Node is only used during the build, so it isn't in the running
+image. The tests aren't in the image: open `tests.html` from the repo instead.
 
 Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want. Then pick one of
 the two setups below. Either way, after changing the app, run `docker compose up -d --build`
@@ -251,6 +252,8 @@ will be better.
 | `src/export.js` | STL, 3MF and ZIP writers |
 | `src/raster.js` | Image loading, resampling and color sampling (browser only) |
 | `src/viewer.js` | three.js 3D preview |
+| `src/pipeline.js` | The build, from image and settings to parts and warnings, with no page code |
+| `src/worker.js` | Runs the pipeline in the background, so the page stays usable during a build |
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |
 | `vendor/` | three.js r147, OrbitControls and fflate (MIT, see `vendor/LICENSES.md`) |
 | `Dockerfile`, `nginx.conf` | Container image: nginx serving the app, minified at build time |
