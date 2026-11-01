@@ -155,6 +155,22 @@ It only routes containers that opt in with `traefik.enable=true`.
        limited to what fits, down to 2.2 mm. Where a rounded front reaches the pocket, the
        pocket's floor moves back too, so the 1 mm stays. If it doesn't fit, it's left out and the app says why. On a bare logo the frame's top edge follows the
        logo, so there may be no room at the top centre; an Outline shape avoids that.
+     - **Stand**: a separate foot for standing the frame on a shelf. It's a bent strip, 4 mm
+       thick and **Stand width** wide (default 30 mm). Its short end plugs into a slot in the
+       back of the bottom border and its long end lies flat on the table, which holds the
+       frame leaning back at the **Lean angle** (default 20°). **Stand length** is how far it
+       reaches behind the frame. Leave it blank for about a third of the frame's height, at
+       least 30 mm. Print it as exported, on its side, so the layers run along the strip and
+       the bend stays strong.
+
+       The slot is hidden from the front, 8 mm deep, and has at least 1 mm of frame all around
+       it, so the border must be at least 6.3 mm and the frame at least 5 mm deep. It works
+       alongside the hanging pocket. If your width doesn't fit, for example on a curved bottom
+       edge, the slot and stand are narrowed to the widest that does, as far as 12 mm, and the
+       app tells you. If it still doesn't fit, it's left out and the app says why. You also
+       get a warning if the frame is so deep for its height that it would tip forwards at
+       that angle, or the stand is too short to stop it tipping backwards. The stand appears
+       in the side-by-side preview, not in Assembled.
 
      **Retaining bumps** are added automatically when there's room for them: when the lip
      depth is more than the print's depth + 0.3 mm + 1 mm. They sit 0.3 mm behind the print.

@@ -26,7 +26,8 @@
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
     framePocketDepth: $('framePocketDepth'), frameOuterRadius: $('frameOuterRadius'), frameInnerRadius: $('frameInnerRadius'),
     viewerHome: $('viewerHome'), frameView: $('frameView'),
-    frameHowTo: $('frameHowTo'),
+    frameHowTo: $('frameHowTo'), frameStand: $('frameStand'), frameStandAngle: $('frameStandAngle'),
+    frameStandWidth: $('frameStandWidth'), frameStandLength: $('frameStandLength'), exportStand: $('exportStand'), standHowTo: $('standHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
     estimate: $('estimate'), swapsEstimate: $('swapsEstimate'), frameEstimate: $('frameEstimate'),
@@ -56,7 +57,7 @@
       outline: { shape: 'none', radius: 5, colorId: null },
       frame: {
         on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
-        pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1,
+        pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
       },
     },
   };
@@ -517,6 +518,10 @@
     s.frame.pocketDepth = Math.max(0, +el.framePocketDepth.value || 0); // 0 = as deep as it can go
     s.frame.outerRadius = Math.max(0, +el.frameOuterRadius.value || 0);
     s.frame.innerRadius = Math.max(0, +el.frameInnerRadius.value || 0);
+    s.frame.stand = el.frameStand.checked;
+    s.frame.standAngle = Math.min(40, Math.max(5, +el.frameStandAngle.value || 20));
+    s.frame.standWidth = Math.max(5, +el.frameStandWidth.value || 30);
+    s.frame.standLength = Math.max(0, +el.frameStandLength.value || 0); // 0 = from the frame's height
   }
 
   function applyVisibility() {
@@ -530,6 +535,7 @@
     viewer.setBed(S.settings.bedWidth, S.settings.bedDepth);
     el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
+    document.querySelectorAll('[data-frame-stand]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.stand); });
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
@@ -545,7 +551,7 @@
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
     el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
-    el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius];
+    el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
@@ -745,16 +751,17 @@
       }
       const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
       if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
-      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius].join('|');
+      const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius, f.stand, f.standWidth].join('|');
       if (cache.frameKey !== frameKey) {
         const fg = cache.finalGrid;
         const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
           border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
-          head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, smooth: s.smooth,
+          head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, stand: f.stand, standWidth: f.standWidth, smooth: s.smooth,
         }, scale);
         cache.frameMesh = built.mesh;
         cache.framePocket = built.pocket;
         cache.frameBumps = built.bumps;
+        cache.frameStand = built.stand;
         cache.frameKey = frameKey;
       }
       if (cache.framePocket === 'border') {
@@ -765,6 +772,26 @@
       } else if (cache.framePocket === 'thin') {
         warnings.push(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
       }
+      // The stand is sized to its slot, so it's left out along with the slot.
+      let stand = null;
+      if (cache.frameStand.fit === 'ok') {
+        const box = L3D.mesh.bounds([cache.frameMesh]), frameHeight = box.max[1] - box.min[1];
+        stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, cache.frameStand));
+        const autoLength = L3D.frame.standReach(frameHeight);
+        el.frameStandLength.placeholder = autoLength.toFixed(0);
+        if (cache.frameStand.width < f.standWidth - 0.01) warnings.push(`The stand was narrowed to ${cache.frameStand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
+        const lean = Math.ceil(L3D.frame.minLean(frameHeight, f.depth));
+        if (f.standAngle < lean) warnings.push(`At ${f.standAngle}° the frame may tip forwards, because it's deep for its height. A lean angle of at least ${lean}° keeps its balance behind the edge it stands on.`);
+        const need = Math.ceil(L3D.frame.minReach(frameHeight, f.depth, f.standAngle));
+        if ((f.standLength || autoLength) < need) warnings.push(`With a stand this short the frame may tip backwards. A stand length of at least ${need} mm keeps its balance in front of the stand's end.`);
+      } else if (cache.frameStand.fit === 'border') {
+        const need = L3D.frame.standBorder();
+        warnings.push(f.border >= need
+          ? 'The stand doesn\'t fit at the bottom centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean bottom edge.'
+          : `The stand doesn't fit in the bottom of the frame, so it was left out. It needs a border of at least ${need} mm.`);
+      } else if (cache.frameStand.fit === 'thin') {
+        warnings.push(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
+      }
       if (printDepth > lipDepth) {
         warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
       } else if (!cache.frameBumps) {
@@ -773,7 +800,7 @@
       el.frameHowTo.textContent = 'Print it as exported, face down, in any color. Then ' + (cache.frameBumps
         ? 'push your print into the back of the frame, face first, until it snaps past the bumps.'
         : 'put your print into the back of the frame, face first, and glue or tape it in place.');
-      S.frame = { mesh: cache.frameMesh, depth: f.depth, lipDepth, printDepth };
+      S.frame = { mesh: cache.frameMesh, stand, depth: f.depth, lipDepth, printDepth };
     }
 
     // Each part has to fit on its own: they're printed separately.
@@ -785,6 +812,7 @@
     };
     if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
     if (S.frame) checkBed('frame', [S.frame.mesh]);
+    if (S.frame && S.frame.stand) checkBed('stand', [S.frame.stand]);
 
     el.viewerMsg.hidden = model.parts.length > 0;
     showParts();
@@ -793,7 +821,8 @@
 
   // Puts the model in the 3D view. A frame goes next to the print, 10 mm to the right, as it
   // prints; or around it, as it will look finished. (They're printed separately, so a pair
-  // running off the bed side by side doesn't mean either part won't fit.)
+  // running off the bed side by side doesn't mean either part won't fit.) A stand goes next
+  // to the frame, and isn't shown in the assembled view, which has the frame lying on its back.
   function showParts() {
     const parts = S.model.parts, frame = S.frame;
     if (!frame) { viewer.setParts(parts); return; }
@@ -807,9 +836,12 @@
     // Side by side, with the pair centred on the bed.
     const printBox = L3D.mesh.bounds([S.model.body]), frameBox = L3D.mesh.bounds([frame.mesh]);
     const frameAt = printBox.max[0] - frameBox.min[0] + 10;
-    const centre = (printBox.min[0] + frameBox.max[0] + frameAt) / 2;
-    viewer.setParts(parts.map(p => Object.assign({}, p, { offset: [-centre, 0, 0] })).concat(
-      [{ name: 'Frame', color, mesh: frame.mesh, offset: [frameAt - centre, 0, 0] }]));
+    const standAt = frameAt + frameBox.max[0] + 10;
+    const right = frame.stand ? standAt + L3D.mesh.bounds([frame.stand]).max[0] : frameAt + frameBox.max[0];
+    const centre = (printBox.min[0] + right) / 2;
+    const extras = [{ name: 'Frame', color, mesh: frame.mesh, offset: [frameAt - centre, 0, 0] }];
+    if (frame.stand) extras.push({ name: 'Stand', color, mesh: frame.stand, offset: [standAt - centre, 0, 0] });
+    viewer.setParts(parts.map(p => Object.assign({}, p, { offset: [-centre, 0, 0] })).concat(extras));
   }
 
   function showOutput(warnings) {
@@ -824,6 +856,8 @@
     const has = !!(m && m.parts.length);
     el.export3mf.disabled = el.exportZip.disabled = el.exportStl.disabled = !has;
     el.exportFrame.disabled = !(has && S.frame);
+    const stand = has && S.frame ? S.frame.stand : null;
+    el.exportStand.disabled = el.exportStand.hidden = el.standHowTo.hidden = !stand;
     el.stats.innerHTML = '';
     el.swapsBox.hidden = true;
     el.estimate.hidden = true;
@@ -835,7 +869,7 @@
     let check = '';
     if (tris <= CHECK_LIMIT) {
       const open = m.parts.reduce((a, p) => a + L3D.mesh.openEdges(p.mesh), 0) + L3D.mesh.openEdges(m.body) +
-        (S.frame ? L3D.mesh.openEdges(S.frame.mesh) : 0);
+        (S.frame ? L3D.mesh.openEdges(S.frame.mesh) : 0) + (stand ? L3D.mesh.openEdges(stand) : 0);
       check = open ? `<span class="bad">✗ ${open} open edges</span>` : '<span class="ok">✓ watertight</span>';
     }
     const dim = i => (b.max[i] - b.min[i]).toFixed(1);
@@ -891,7 +925,8 @@
     el.swapsEstimate.textContent = `About ${line(body)} in all.`;
     if (S.frame) {
       const frame = E.plastic(S.frame.mesh);
-      el.frameEstimate.textContent = `About ${line(frame)}.`;
+      const stand = S.frame.stand ? ` The stand adds about ${line(E.plastic(S.frame.stand))}.` : '';
+      el.frameEstimate.textContent = `About ${line(frame)}.${stand}`;
     }
   }
 
@@ -928,6 +963,10 @@
   el.exportFrame.addEventListener('click', () => {
     if (!S.frame) return;
     L3D.exporters.download(L3D.exporters.stl([S.frame.mesh]), S.name + '-frame.stl', 'model/stl');
+  });
+  el.exportStand.addEventListener('click', () => {
+    if (!S.frame || !S.frame.stand) return;
+    L3D.exporters.download(L3D.exporters.stl([S.frame.stand]), S.name + '-stand.stl', 'model/stl');
   });
   el.exportStl.addEventListener('click', () => {
     if (!S.model) return;

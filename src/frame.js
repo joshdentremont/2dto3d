@@ -8,6 +8,7 @@
 //   label 2 = hanging pocket opening (solid up to the pocket floor, open to the back)
 //   label 3 = hanging pocket under its lip (solid to the floor, a gap for the head, the lip)
 //   labels 4, 5, 6 = retaining bump: lip, a gap for the print, then a bump, tallest by the wall
+//   label 7 = slot for the stand (solid up to the slot floor, open to the back)
 // Rounded front edges are made of rings: near the outer edge or the opening, a pixel's label
 // is one of the above plus KINDS * ring, where ring says how many ROUND_STEPs its front face
 // is set back.
@@ -15,7 +16,8 @@
   'use strict';
 
   const FAR = 1e20;
-  const KINDS = 7;
+  const KINDS = 8;
+  const SOCKET = 7; // the label of the stand's slot
   // Rounded front edges: height of each step (mm), matching a typical print layer.
   const ROUND_STEP = 0.2;
 
@@ -39,6 +41,36 @@
   const BUMP_WIDTH = 4;
   const BUMP_LONG_SIDE = 200;
   const BUMP_STEPS = 3;
+
+  // Stand, in mm. A strip STAND_THICK thick and STAND_WIDTH wide unless asked otherwise,
+  // narrowing in STAND_WIDTH_STEP steps as far as STAND_MIN_WIDTH if it doesn't fit, such as on
+  // a curved bottom edge. Its slot is STAND_FIT bigger all round, STAND_SOCKET deep, or at least
+  // STAND_MIN_SOCKET in a thin frame. Unless asked otherwise, it reaches STAND_REACH of the
+  // frame's height behind the frame, at least STAND_MIN_REACH.
+  const STAND_THICK = 4;
+  const STAND_WIDTH = 30;
+  const STAND_WIDTH_STEP = 2;
+  const STAND_MIN_WIDTH = 12;
+  const STAND_FIT = 0.15;
+  const STAND_SOCKET = 8;
+  const STAND_MIN_SOCKET = 4;
+  const STAND_REACH = 0.35;
+  const STAND_MIN_REACH = 30;
+
+  // Border width and frame depth (mm) the stand's slot needs.
+  const standBorder = () => STAND_THICK + 2 * STAND_FIT + 2 * POCKET_WALL;
+  const standDepth = () => STAND_MIN_SOCKET + SKIN;
+
+  // Smallest lean (degrees) that keeps a frame's balance behind the edge it stands on, and the
+  // shortest reach behind that edge (mm) that keeps its balance in front of the stand's end.
+  const minLean = (height, depth) => Math.atan2(depth, height) * 180 / Math.PI;
+  function minReach(height, depth, angle) {
+    const a = angle * Math.PI / 180;
+    return height / 2 * Math.sin(a) - depth / 2 * Math.cos(a);
+  }
+
+  // How far a stand reaches behind a frame of this height (mm) if not asked for a length.
+  const standReach = height => Math.max(STAND_MIN_REACH, height * STAND_REACH);
 
   // Frame depth and border width (mm) a pocket for this head needs, and the deepest pocket
   // a frame of this depth can have.
@@ -166,6 +198,43 @@
     return true;
   }
 
+  // Cuts the stand's slot into the wall at the bottom of the frame, centred left-to-right on
+  // the frame, as low as `wall` pixels of wall allow and at most `border` pixels up. Tries
+  // `width`, then narrower down to minWidth. Returns { width, rise }, where rise is from the
+  // frame's bottom edge to the slot's centre, or null, leaving the grid alone, if it can't fit.
+  function cutSocket(grid, W, H, width, minWidth, step, thick, wall, border) {
+    let x0 = W, x1 = -1, bottom = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (grid[y * W + x] < 0) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        bottom = y;
+      }
+    }
+    if (x1 < 0) return null;
+    // Measured between pixel centres, so `wall` whole pixels lie between two that are wall + 1
+    // apart.
+    const toOther = distanceSq(Uint8Array.from(grid, v => (v === 1 ? 0 : 1)), W, H);
+    const limit = (wall + 1) * (wall + 1), T = Math.ceil(thick), cx = (x0 + x1 + 1) / 2;
+    const clear = (a, b, top) => {
+      for (let y = top; y < top + T; y++) {
+        for (let x = a; x < b; x++) if (toOther[y * W + x] < limit) return false;
+      }
+      return true;
+    };
+    for (let w = width; w >= minWidth - 1e-6; w -= step) {
+      const a = Math.round(cx - w / 2), b = a + Math.ceil(w);
+      if (a < x0 || b > x1 + 1) continue;
+      for (let top = bottom - T; top >= Math.max(0, bottom - T - border); top--) {
+        if (!clear(a, b, top)) continue;
+        for (let y = top; y < top + T; y++) grid.fill(SOCKET, y * W + a, y * W + b);
+        return { width: b - a, rise: bottom + 1 - (top + T / 2) };
+      }
+    }
+    return null;
+  }
+
   // Adds retaining bumps to the lip around the inside of the recess, side by side: top,
   // bottom, left and right of each outline. reach = how far a bump comes out from the wall,
   // width = its width, longSide = side length above which a side gets two, clearance = gap
@@ -240,9 +309,10 @@
   // labels: the print's final label grid (W x H). opts (all in pixels): border (frame width
   // outside the recess), lip (how far the lip overlaps the print's edge), clearance (gap
   // between print and recess); optionally pocketRadius, pocketRise and pocketWall for a
-  // hanging pocket; bumpReach, bumpWidth and bumpLongSide for retaining bumps; outerRadius,
-  // innerRadius and roundStep for rounded front edges. Returns { labels, W, H, pocketCut }
-  // for tracing.
+  // hanging pocket; socketWidth, socketMinWidth, socketStep, socketThick and socketWall for the
+  // stand's slot; bumpReach, bumpWidth and bumpLongSide for retaining bumps; outerRadius,
+  // innerRadius and roundStep for rounded front edges. Returns { labels, W, H, pocketCut,
+  // socket } for tracing.
   function frameGrid(labels, W, H, opts) {
     const pad = Math.ceil(opts.border + opts.clearance) + 2;
     const { F, W: NW, H: NH } = footprint(labels, W, H, pad);
@@ -266,6 +336,8 @@
     }
     const pocketCut = opts.pocketRadius > 0 &&
       cutPocket(out, NW, NH, opts.pocketRadius, opts.pocketRise, opts.pocketWall || 0);
+    const socket = opts.socketWidth > 0 ? cutSocket(out, NW, NH, opts.socketWidth, opts.socketMinWidth,
+      opts.socketStep, opts.socketThick, opts.socketWall, opts.border) : null;
     if (opts.bumpReach > 0) addBumps(out, recess, NW, NH, opts.bumpReach, opts.bumpWidth, opts.bumpLongSide, opts.clearance);
     if (opts.outerRadius > 0 || opts.innerRadius > 0) {
       const outside = new Uint8Array(NW * NH), opening = new Uint8Array(NW * NH);
@@ -286,14 +358,17 @@
         out[i] += KINDS * Math.round(back / opts.roundStep);
       }
     }
-    return { labels: out, W: NW, H: NH, pocketCut };
+    return { labels: out, W: NW, H: NH, pocketCut, socket };
   }
 
-  // The frame, as { mesh, pocket, bumps }. pocket is 'none', 'ok', 'thin' (frame too thin) or
-  // 'border' (no room in the top border); bumps says whether they were added. Distances in
-  // opts are in mm: frameDepth (front to back), lipDepth (back of the frame to the lip),
-  // printDepth, head (0 = no pocket), pocketDepth (0 = as deep as possible), outerRadius and
-  // innerRadius (0 = square edge). scale = mm per pixel.
+  // The frame, as { mesh, pocket, bumps, stand }. pocket is 'none', 'ok', 'thin' (frame too
+  // thin) or 'border' (no room in the top border); bumps says whether they were added. stand
+  // is { fit, width, rise, depth }, in mm, where fit is the same as pocket but for the bottom
+  // border, and width, rise and depth describe the slot for buildStand. Distances in opts are
+  // in mm: frameDepth (front to back), lipDepth (back of the frame to the lip), printDepth,
+  // head (0 = no pocket), pocketDepth (0 = as deep as possible), outerRadius and innerRadius
+  // (0 = square edge). stand: true cuts a slot for a stand, standWidth wide if that fits.
+  // scale = mm per pixel.
   function buildFrame(labels, W, H, opts, scale) {
     const total = opts.frameDepth, lipTop = total - opts.lipDepth;
     const head = opts.head || 0;
@@ -301,10 +376,16 @@
     const bumps = opts.lipDepth > bumpDepth(opts.printDepth) + 1e-6;
     const outerRadius = opts.outerRadius || 0;
     const innerRadius = Math.min(opts.innerRadius || 0, maxInnerRadius(opts.lip + opts.clearance, lipTop));
+    const socketDepth = Math.min(STAND_SOCKET, maxPocketDepth(total));
+    const socketRoom = socketDepth >= STAND_MIN_SOCKET - 1e-6;
+    const standWidth = opts.standWidth || STAND_WIDTH;
     const grid = frameGrid(labels, W, H, {
       border: opts.border / scale, lip: opts.lip / scale, clearance: opts.clearance / scale,
       pocketRadius: head > 0 && room ? (head + HEAD_CLEARANCE) / 2 / scale : 0,
       pocketRise: head / 2 / scale, pocketWall: POCKET_WALL / scale,
+      socketWidth: opts.stand && socketRoom ? (standWidth + 2 * STAND_FIT) / scale : 0,
+      socketMinWidth: (Math.min(standWidth, STAND_MIN_WIDTH) + 2 * STAND_FIT) / scale, socketStep: STAND_WIDTH_STEP / scale,
+      socketThick: (STAND_THICK + 2 * STAND_FIT) / scale, socketWall: POCKET_WALL / scale,
       bumpReach: bumps ? (opts.clearance + BUMP_OVERLAP) / scale : 0,
       bumpWidth: BUMP_WIDTH / scale, bumpLongSide: BUMP_LONG_SIDE / scale,
       outerRadius: outerRadius / scale, innerRadius: innerRadius / scale, roundStep: ROUND_STEP / scale,
@@ -322,23 +403,62 @@
       [[0, floor], [total - RETAIN, total]],
     ];
     for (let s = 0; s < BUMP_STEPS; s++) kinds.push([[0, lipTop], [bumpFrom, bumpTop(s)]]);
+    kinds.push([[0, total - socketDepth]]);
 
-    // Every kind of column at every set-back of the rounded edges. The pocket's floor moves
-    // back with the front face, so that SKIN of frame always stays in front of it.
+    // Every kind of column at every set-back of the rounded edges. A pocket's or slot's floor
+    // moves back with the front face, so that SKIN of frame always stays in front of it.
     const rings = Math.ceil(Math.max(outerRadius, innerRadius) / ROUND_STEP) + 1;
     const layers = [];
     for (let ring = 0; ring < rings; ring++) {
       const front = Math.round(ring * ROUND_STEP * 1e4) / 1e4;
       kinds.forEach((spans, kind) => {
         layers[kind + KINDS * ring] = spans.map(([p, q], k) => {
-          const pocket = (kind === 2 || kind === 3) && k === 0;
+          const pocket = (kind === 2 || kind === 3 || kind === SOCKET) && k === 0;
           return [Math.max(p, front), pocket ? Math.max(q, front + SKIN) : q];
         }).filter(([p, q]) => q > p + 1e-6);
       });
     }
     const mesh = L3D.mesh.buildLayers(g, layers, scale);
     const pocket = !head ? 'none' : !room ? 'thin' : grid.pocketCut ? 'ok' : 'border';
-    return { mesh, pocket, bumps };
+    const stand = { fit: !opts.stand ? 'none' : !socketRoom ? 'thin' : grid.socket ? 'ok' : 'border' };
+    if (grid.socket) {
+      stand.width = grid.socket.width * scale - 2 * STAND_FIT;
+      stand.rise = grid.socket.rise * scale;
+      stand.depth = socketDepth;
+    }
+    return { mesh, pocket, bumps, stand };
+  }
+
+  // The stand: a strip bent by the lean angle, printed on its side. Seen from the side, a long
+  // run lies flat on the table behind the frame, and a shorter one rises towards the frame
+  // and into its slot, which holds the frame leaning back by that angle. The frame stands on
+  // its bottom edge. opts, in mm: width, rise and depth from buildFrame's stand, frameHeight,
+  // reach (how far behind the frame it ends; 0 = standReach) and angle in degrees. x runs
+  // along the table, y up from it, and the width is along z.
+  function buildStand(opts) {
+    const a = opts.angle * Math.PI / 180, t = STAND_THICK;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    // Length of the rising run outside the slot, and the whole of it: it stops just short of
+    // the slot's floor.
+    const free = Math.max(0, (opts.rise * cos - t / 2) / sin);
+    const tongue = free + opts.depth - STAND_FIT;
+    const flat = Math.max(t, (opts.reach || standReach(opts.frameHeight)) - free * cos);
+    // Corners of the side view, anticlockwise. The bend's corners are mitred.
+    const bend = t / 2 * Math.tan(a / 2);
+    const tipX = -tongue * cos, tipY = t / 2 + tongue * sin, nx = t / 2 * sin, ny = t / 2 * cos;
+    const side = [[flat, 0], [flat, t], [bend, t], [tipX + nx, tipY + ny], [tipX - nx, tipY - ny], [-bend, 0]];
+    const left = Math.min(...side.map(p => p[0]));
+    const positions = [], indices = [];
+    for (const z of [0, opts.width]) for (const [x, y] of side) positions.push(x - left, y, z);
+    const N = side.length;
+    for (const [p, q, r] of [[0, 1, 2], [0, 2, 5], [5, 2, 3], [5, 3, 4]]) {
+      indices.push(p + N, q + N, r + N, p, r, q);
+    }
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      indices.push(i, j, j + N, i, j + N, i + N);
+    }
+    return { positions: Float32Array.from(positions), indices: Uint32Array.from(indices) };
   }
 
   // Where the parts go to show the print sitting in the frame, front upwards. The frame is
@@ -350,5 +470,5 @@
     return { frameZ: frameDepth + lift, printZ: lipDepth - printDepth + lift };
   }
 
-  L3D.frame = { assembled, distanceSq, frameGrid, buildFrame, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth };
+  L3D.frame = { assembled, distanceSq, frameGrid, buildFrame, buildStand, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth, standBorder, standDepth, standReach, minLean, minReach };
 })(globalThis.L3D = globalThis.L3D || {});

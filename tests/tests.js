@@ -370,18 +370,18 @@
       if (big) res.errors.push(`${big} open edges with rounding reaching the pocket`);
 
       // Inner edge: across the lip, the set-back rises steadily towards the opening and is
-      // zero more than the radius away from it. (7 kinds of column per ring.)
+      // zero more than the radius away from it. (8 kinds of column per ring.)
       const across = L3D.frame.frameGrid(g0.labels, g0.W, g0.H, { border: 48, lip: 8, clearance: 2, innerRadius: 6, roundStep: 0.5 });
       const row = Math.floor(across.H / 2) * across.W;
       let edge = 0;
       while (across.labels[row + edge] < 0) edge++;  // the empty space outside the frame
       while (across.labels[row + edge] >= 0) edge++; // the frame, up to the opening
       const rings = [];
-      for (let x = edge - 8; x < edge; x++) rings.push(Math.floor(across.labels[row + x] / 7));
+      for (let x = edge - 8; x < edge; x++) rings.push(Math.floor(across.labels[row + x] / 8));
       if (rings.some((r, k) => k > 0 && r < rings[k - 1])) res.errors.push(`set-back does not rise towards the opening: ${rings}`);
       if (!(rings[rings.length - 1] > 0)) res.errors.push(`no set-back at the opening: ${rings}`);
       if (rings[0] !== 0) res.errors.push(`set-back reaches further than the radius: ${rings}`);
-      for (let x = edge - 8; x < edge; x++) if (across.labels[row + x] % 7 !== 0) res.errors.push('rounding changed the lip column');
+      for (let x = edge - 8; x < edge; x++) if (across.labels[row + x] % 8 !== 0) res.errors.push('rounding changed the lip column');
 
       for (const smooth of [false, true]) {
         const m = build({ innerRadius: 1, outerRadius: 1, smooth }).mesh;
@@ -552,6 +552,97 @@
       // A photo-like gradient stops at the limit.
       const many = L3D.labels.suggestColors(image(256, 256, (x, y) => [x, y, (x + y) >> 1, 255]).px, 65536);
       if (many.length > 8) res.errors.push(`${many.length} colors from a gradient`);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
+    // Frame stand.
+    {
+      const res = { name: 'frame stand', errors: [] };
+      const F = L3D.frame, M = L3D.mesh;
+      const W = 200, H = 150, scale = 0.5; // a 100 x 75 mm print
+      const solid = new Int16Array(W * H);
+      const base = { border: 10, lip: 1, clearance: 0.3, frameDepth: 15, lipDepth: 13, printDepth: 2, smooth: false };
+      const plain = F.buildFrame(solid, W, H, base, scale);
+      if (plain.stand.fit !== 'none') res.errors.push(`no stand asked for, got ${plain.stand.fit}`);
+
+      const f = F.buildFrame(solid, W, H, Object.assign({}, base, { stand: true }), scale);
+      if (f.stand.fit !== 'ok') res.errors.push(`slot: ${f.stand.fit}`);
+      if (M.openEdges(f.mesh)) res.errors.push(`${M.openEdges(f.mesh)} open edges in the frame`);
+      // 30.5 mm wide in whole pixels, less the fit on each side.
+      if (!close(f.stand.width, 30.2)) res.errors.push(`slot takes a ${f.stand.width} mm stand`);
+      // The slot is 30.3 x 4.3 mm rounded up to whole pixels, 8 mm deep.
+      const slot = M.volume(plain.mesh) - M.volume(f.mesh);
+      if (!close(slot, 30.5 * 4.5 * 8, 0.01)) res.errors.push(`slot takes out ${slot} mm³`);
+      if (f.stand.rise < 3 || f.stand.rise > 10) res.errors.push(`slot is ${f.stand.rise} mm up`);
+
+      const h = 96;
+      const stand = F.buildStand({ width: f.stand.width, rise: f.stand.rise, depth: f.stand.depth, angle: 20, frameHeight: h });
+      if (M.openEdges(stand)) res.errors.push(`${M.openEdges(stand)} open edges in the stand`);
+      const box = M.bounds([stand]);
+      if (Math.abs(box.min[0]) > 1e-6 || Math.abs(box.min[1]) > 1e-6 || Math.abs(box.min[2]) > 1e-6) res.errors.push('stand is not on the bed');
+      if (!close(box.max[2], f.stand.width, 1e-5)) res.errors.push(`stand is ${box.max[2]} mm wide`);
+      // Its tongue comes out of the frame at the lean angle, level with the slot, and it
+      // reaches at least 0.35 of the frame's height behind the frame.
+      const a = 20 * Math.PI / 180, p = stand.positions, at = i => [p[3 * i], p[3 * i + 1]];
+      const slope = (from, to) => Math.atan2(at(to)[1] - at(from)[1], at(from)[0] - at(to)[0]);
+      if (!close(slope(2, 3), a, 1e-5) || !close(slope(5, 4), a, 1e-5)) res.errors.push('tongue is not at the lean angle');
+      if (!close(at(0)[1], 0) || !close(at(5)[1], 0)) res.errors.push('flat run is not flat');
+      const free = (f.stand.rise * Math.cos(a) - 2) / Math.sin(a);
+      const tipBend = Math.hypot(at(3)[0] + at(4)[0] - at(2)[0] - at(5)[0], at(3)[1] + at(4)[1] - at(2)[1] - at(5)[1]) / 2;
+      if (!close(tipBend, free + 8 - 0.15, 1e-4)) res.errors.push(`tongue is ${tipBend} mm long, expected ${free + 7.85}`);
+      if (at(0)[0] - at(5)[0] + free * Math.cos(a) < 0.35 * h - 2) res.errors.push('stand is too short');
+      if (!close(F.minLean(100, 15), Math.atan(0.15) * 180 / Math.PI)) res.errors.push(`minLean ${F.minLean(100, 15)}`);
+
+      // Stand length: asked for, it's how far the stand reaches behind the frame. Blank uses
+      // the frame's height, and a tiny one still leaves a closed part with a flat run.
+      const reachOf = reach => {
+        const m = F.buildStand({ width: 30, rise: f.stand.rise, depth: f.stand.depth, angle: 20, frameHeight: h, reach });
+        const q = m.positions, bendX = (q[3 * 2] + q[3 * 5]) / 2;
+        return { mesh: m, flat: q[0] - bendX, reach: q[0] - bendX + free * Math.cos(a) };
+      };
+      if (!close(reachOf(60).reach, 60, 1e-4)) res.errors.push(`60 mm stand reaches ${reachOf(60).reach}`);
+      if (!close(reachOf(0).reach, F.standReach(h), 1e-4)) res.errors.push(`blank length reaches ${reachOf(0).reach}`);
+      if (!close(F.standReach(h), 33.6) || F.standReach(50) !== 30) res.errors.push(`standReach ${F.standReach(h)}, ${F.standReach(50)}`);
+      if (M.openEdges(reachOf(1).mesh) || !close(reachOf(1).flat, 4, 1e-5)) res.errors.push(`1 mm stand: flat run ${reachOf(1).flat}`);
+      // A 300 mm frame 15 mm deep at 20 degrees: its middle is 44 mm behind the edge it stands on.
+      if (!close(F.minReach(300, 15, 20), 150 * Math.sin(a) - 7.5 * Math.cos(a))) res.errors.push(`minReach ${F.minReach(300, 15, 20)}`);
+
+      // Fits alongside a hanging pocket, and doesn't change what the print's recess is.
+      const both = F.buildFrame(solid, W, H, Object.assign({}, base, { stand: true, head: 5 }), scale);
+      if (both.stand.fit !== 'ok' || both.pocket !== 'ok') res.errors.push(`with a pocket: ${both.stand.fit}, ${both.pocket}`);
+      if (M.openEdges(both.mesh)) res.errors.push('open edges with pocket and stand');
+
+      // No room: a thin border, a shallow frame.
+      const thin = F.buildFrame(solid, W, H, Object.assign({}, base, { border: 5, stand: true }), scale);
+      if (thin.stand.fit !== 'border') res.errors.push(`5 mm border: ${thin.stand.fit}`);
+      if (M.openEdges(thin.mesh)) res.errors.push('open edges with no room for the slot');
+      if (!close(M.volume(thin.mesh), M.volume(F.buildFrame(solid, W, H, Object.assign({}, base, { border: 5 }), scale).mesh))) res.errors.push('a slot that did not fit changed the frame');
+      const shallow = F.buildFrame(solid, W, H, Object.assign({}, base, { frameDepth: 4, lipDepth: 3, stand: true }), scale);
+      if (shallow.stand.fit !== 'thin') res.errors.push(`4 mm frame: ${shallow.stand.fit}`);
+      const justDeep = F.buildFrame(solid, W, H, Object.assign({}, base, { frameDepth: F.standDepth(), lipDepth: 3, stand: true }), scale);
+      if (justDeep.stand.fit !== 'ok' || justDeep.stand.depth !== 4) res.errors.push(`${F.standDepth()} mm frame: ${justDeep.stand.fit}, depth ${justDeep.stand.depth}`);
+      const justBorder = F.buildFrame(solid, W, H, Object.assign({}, base, { border: F.standBorder() + 1, stand: true }), scale);
+      if (justBorder.stand.fit !== 'ok') res.errors.push(`${F.standBorder() + 1} mm border: ${justBorder.stand.fit}`);
+
+      // Stand width: as asked if it fits, down to narrower than the usual limit, otherwise
+      // the widest that fits along the frame's bottom wall (121 mm, less 1 mm each end).
+      const widthOf = standWidth => F.buildFrame(solid, W, H, Object.assign({}, base, { stand: true, standWidth }), scale);
+      for (const [asked, low, high] of [[50, 50, 50.5], [8, 8, 8.5], [300, 110, 120]]) {
+        const sized = widthOf(asked);
+        if (sized.stand.fit !== 'ok' || sized.stand.width < low || sized.stand.width > high) res.errors.push(`${asked} mm stand: ${sized.stand.fit}, ${sized.stand.width}`);
+        if (M.openEdges(sized.mesh)) res.errors.push(`${asked} mm stand: open edges`);
+      }
+
+      // Round frames, large and small: the slot follows the curve, narrowing if it has to, and
+      // the rounded front stays closed around it.
+      for (const size of [60, 200]) {
+        const o = L3D.model.addOutline(new Int16Array(size * size), size, size, 0, 'oval', 0);
+        const round = F.buildFrame(o.labels, o.W, o.H, Object.assign({}, base, { stand: true, outerRadius: 1, innerRadius: 1, smooth: true }), scale);
+        if (round.stand.fit !== 'ok') res.errors.push(`round ${size}: ${round.stand.fit}`);
+        else if (round.stand.width < 12 || round.stand.width > 30.5) res.errors.push(`round ${size}: ${round.stand.width} mm stand`);
+        if (M.openEdges(round.mesh)) res.errors.push(`round ${size}: ${M.openEdges(round.mesh)} open edges`);
+      }
       res.ok = res.errors.length === 0;
       results.push(res);
     }
