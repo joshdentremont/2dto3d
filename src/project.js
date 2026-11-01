@@ -10,7 +10,7 @@
   const MAX_COLORS = 256;
   const MAX_ENTRY = 200 * 1024 * 1024;  // bytes, unpacked, for any one file inside a project
   const MAX_TEXT = 200;                 // characters kept of a name
-  const IMAGE_TYPES = ['', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'];
+  const IMAGE_TYPES = ['', 'image/png', 'image/jpeg', 'image/webp', 'image/avif', 'image/gif', 'image/svg+xml'];
   const ENTRIES = ['project.json', 'image', 'edited'];
 
   const NOT_A_PROJECT = 'This isn\'t a 2D to 3D project file, or it\'s damaged.';

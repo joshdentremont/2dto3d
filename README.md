@@ -73,7 +73,7 @@ It only routes containers that opt in with `traefik.enable=true`.
 
 ## How to use it
 
-1. **Image.** Drop an image onto the panel or choose one with the button. PNG, JPG, WebP and SVG
+1. **Image.** Drop an image onto the panel or choose one with the button. PNG, JPG, WebP, AVIF and SVG
    all work. `samples/sample-logo.svg` is there to try.
    Under the image are tools to adjust it, which keep any colors you've picked:
    - **Rotate** a quarter turn left or right, and **Flip** left to right or top to bottom.

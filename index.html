@@ -27,16 +27,16 @@
         <div class="drop-hint" id="dropHint">
           <p><strong>Drop an image here</strong></p>
           <label class="btn primary">Choose image…
-            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg,.2d3d" hidden>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/svg+xml,.avif,.svg,.2d3d" hidden>
           </label>
-          <p class="muted">PNG, JPG, WebP or SVG. Logos with flat colors work best. You can also open a .2d3d project file someone sent you.</p>
+          <p class="muted">PNG, JPG, WebP, AVIF or SVG. Logos with flat colors work best. You can also open a .2d3d project file someone sent you.</p>
         </div>
         <canvas id="loupe" class="loupe" width="96" height="120" hidden></canvas>
       </div>
       <div class="row-between">
         <p class="hint" id="pickHint">Load an image, then click it to pick each color for the model.</p>
         <label class="btn small" id="replaceBtn" hidden>Replace image…
-          <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg,.2d3d" hidden>
+          <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/svg+xml,.avif,.svg,.2d3d" hidden>
         </label>
       </div>
       <div class="image-tools" id="imageTools" hidden>

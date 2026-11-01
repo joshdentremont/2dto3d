@@ -752,6 +752,7 @@
       if (back.values.perColor !== true || back.values.widthMm !== '120' || back.values.frameOn !== false) res.errors.push('settings changed');
       if (P.unpack(P.pack(project({ edited: null }))).edited !== null) res.errors.push('an unedited image gained an edit');
       if (!P.isProject('Logo.2D3D') || P.isProject('logo.png')) res.errors.push('isProject');
+      if (P.unpack(P.pack(project({ imageName: 'logo.avif', imageType: 'image/avif' }))).imageType !== 'image/avif') res.errors.push('AVIF image type lost');
 
       refused('random bytes', new Uint8Array(500).fill(66));
       refused('an empty file', new Uint8Array(0));

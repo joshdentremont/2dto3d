@@ -5,7 +5,7 @@
   // Longest side (pixels) an SVG is drawn at when it's edited: twice the largest print grid.
   const SVG_EDIT_SIDE = 3200;
 
-  // Loads PNG / JPG / WebP / GIF / SVG into an <img>. SVGs without a size get 1024 px.
+  // Loads PNG / JPG / WebP / AVIF / GIF / SVG into an <img>. SVGs without a size get 1024 px.
   function loadImage(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
