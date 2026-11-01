@@ -18,7 +18,8 @@
   const isProject = fileName => String(fileName).toLowerCase().endsWith(EXTENSION);
 
   // p: { name, imageName, imageType, image (bytes), edited (PNG bytes, or null), palette,
-  // colorIds: { base, loop, outline }, values: { input id: value } }. Returns the file's bytes.
+  // colorIds: { base, loop, outline, border }, values: { input id: value } }. Returns the file's
+  // bytes.
   function pack(p) {
     const meta = {
       format: FORMAT, version: VERSION, name: p.name, imageName: p.imageName, imageType: p.imageType,
@@ -65,7 +66,7 @@
 
     const given = meta.colorIds && typeof meta.colorIds === 'object' ? meta.colorIds : {};
     const colorIds = {};
-    for (const k of ['base', 'loop', 'outline']) colorIds[k] = isId(given[k]) ? given[k] : null;
+    for (const k of ['base', 'loop', 'outline', 'border']) colorIds[k] = isId(given[k]) ? given[k] : null;
 
     // Settings are typed into the page's own inputs, which reject anything unusable, so
     // they only need to be plain values.

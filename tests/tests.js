@@ -669,12 +669,13 @@
         base: { type: 'none', thickness: 1, colorId: null },
         loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
         outline: { shape: 'none', radius: 5, colorId: null },
+        border: { on: false, width: 2, height: 3, colorId: 2 },
         frame: {
           on: true, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, pocket: false, head: 5, pocketDepth: 0,
           outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 12, standLength: 0,
         },
       };
-      const job = (over, image) => Object.assign({ gw, gh, scale, capped: false, palette, settings }, over, image ? { image } : {});
+      const job = (over, image) => Object.assign({ gw, gh, scale, capped: false, borderMm: 0, palette, settings }, over, image ? { image } : {});
       const p = L3D.pipeline.create();
       const first = p.run(job({}, pixels()));
       if (!first.model || first.model.parts.length !== 2) res.errors.push('expected two parts');
@@ -712,9 +713,62 @@
       if (none.model !== null || none.frame !== null || none.openEdges !== null) res.errors.push('built with no materials');
       if (!none.shown || none.shownKey === flipped.shownKey) res.errors.push('no grid with no materials');
 
+      // A border: one more part, wider than the image, with its own height in a flat model.
+      const framed = over => Object.assign({}, settings, { border: Object.assign({}, settings.border, { on: true }), frame: Object.assign({}, settings.frame, { on: false }) }, over);
+      const bordered = L3D.pipeline.create().run(job({ borderMm: 2, settings: framed() }, pixels()));
+      const part = name => bordered.model.parts.find(q => q.name === name);
+      if (!part('Border')) res.errors.push('no border part');
+      else {
+        const box = L3D.mesh.bounds([part('Border').mesh]);
+        if (!close(box.max[0] - box.min[0], 44) || !close(box.max[1] - box.min[1], 34)) res.errors.push(`border is ${box.max[0] - box.min[0]} x ${box.max[1] - box.min[1]}`);
+        if (!close(box.max[2], 3)) res.errors.push(`border is ${box.max[2]} mm high`);
+        if (part('Border').color !== '#0000FF') res.errors.push(`border color ${part('Border').color}`);
+      }
+      if (!close(L3D.mesh.bounds([part('Red').mesh]).max[2], 2)) res.errors.push('flat colors changed height');
+      if (bordered.openEdges !== 0) res.errors.push(`${bordered.openEdges} open edges with a border`);
+      if (bordered.shown.ox !== 3 || bordered.shown.border !== 1) res.errors.push(`Mapped grid ox ${bordered.shown.ox}, border ${bordered.shown.border}`);
+      if (bordered.shownKey === L3D.pipeline.create().run(job({}, pixels())).shownKey) res.errors.push('border left the grid unchanged');
+      // A rectangular base plate's label stays clear of the border's, and the plate is under both.
+      const plate = L3D.pipeline.create().run(job({ borderMm: 2, palette: [palette[0], Object.assign({}, palette[1], { none: true })],
+        settings: framed({ base: { type: 'rect', thickness: 1, colorId: 1 }, border: Object.assign({}, settings.border, { on: true, colorId: 1 }) }) }, pixels()));
+      if (plate.openEdges !== 0 || plate.model.parts.length !== 3) res.errors.push(`plate and border: ${plate.model.parts.length} parts, ${plate.openEdges} open edges`);
+      if (!plate.shown.labels.includes(2) || !plate.shown.labels.includes(3)) res.errors.push('plate and border labels');
+      // Off, or on with a color that has no material, there's no border.
+      const noColor = L3D.pipeline.create().run(job({ borderMm: 2, settings: framed({ border: Object.assign({}, settings.border, { on: true, colorId: 99 }) }) }, pixels()));
+      if (noColor.model.parts.some(q => q.name === 'Border')) res.errors.push('a border with no color');
+      const limited = L3D.pipeline.create().run(job({ borderMm: 2, settings: framed({ border: Object.assign({}, settings.border, { on: true, width: 30 }) }) }, pixels()));
+      if (!limited.warnings.some(w => w.includes('border was limited'))) res.errors.push('no warning for a limited border');
+      // On a single extruder it takes its place in the list of filament changes.
+      const layered = L3D.pipeline.create().run(job({ borderMm: 2, settings: framed({ mode: 'layered', layerHeight: 0.2 }) }, pixels()));
+      if (layered.model.swaps.length < 2 || layered.openEdges !== 0) res.errors.push(`layered border: ${layered.model.swaps.length} swaps, ${layered.openEdges} open edges`);
+
       // A second pipeline, as after a worker fails, starts clean from the pixels.
       const fresh = L3D.pipeline.create().run(job({}, pixels()));
       if (fresh.counts[0] !== 600 || !fresh.model) res.errors.push('a fresh pipeline did not build');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
+    // Border around a shape, ignoring openings enclosed by it.
+    {
+      const res = { name: 'border band', errors: [] };
+      const add = L3D.model.addBorder;
+      // A 10 x 10 ring with a 4 x 4 opening, and a 3 pixel band.
+      const W = 10, H = 10, labels = new Int16Array(W * H);
+      for (let y = 3; y < 7; y++) labels.fill(-1, y * W + 3, y * W + 7);
+      const b = add(labels, W, H, 5, 3);
+      if (b.W !== 18 || b.H !== 18 || b.ox !== 4 || b.oy !== 4) res.errors.push(`grid ${b.W} x ${b.H} at ${b.ox}, ${b.oy}`);
+      const at = (x, y) => b.labels[y * b.W + x];
+      if (at(b.ox + 5, b.oy + 5) !== -1) res.errors.push('the opening was filled');
+      if (at(b.ox, b.oy) !== 0 || at(b.ox + 2, b.oy + 9) !== 0) res.errors.push('the shape changed');
+      for (const k of [1, 2, 3]) if (at(b.ox - k, b.oy + 5) !== 5) res.errors.push(`no band ${k} left of the shape`);
+      if (at(b.ox - 4, b.oy + 5) !== -1) res.errors.push('band too wide');
+      const g = L3D.contours.trace(b.labels, b.W, b.H, { smooth: true });
+      const zTop = [2, undefined, undefined, undefined, undefined, 3];
+      if (L3D.mesh.openEdges(L3D.mesh.buildSolid(g, zTop, 0, 1))) res.errors.push('band is not watertight');
+      // Nothing to go around.
+      const empty = add(new Int16Array(16).fill(-1), 4, 4, 5, 2);
+      if (empty.labels.includes(5)) res.errors.push('band around nothing');
       res.ok = res.errors.length === 0;
       results.push(res);
     }

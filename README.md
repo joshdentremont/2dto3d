@@ -130,6 +130,16 @@ It only routes containers that opt in with `traefik.enable=true`.
        included, is cut away. A radius of 0 gives sharp corners. The largest radius is half
        the shorter side, which gives fully rounded ends; bigger values are capped, with a
        warning.
+   - **Border** (optional) adds a band around the outside edge of the shape, as part of the
+     same print. On a bare logo it follows the logo, on an Outline it follows the outline, and
+     with a rectangular base plate it goes around the rectangle. Openings inside the shape
+     don't get one. Its outer corners are rounded to the border's width. Set the **Border
+     width**, the **Border height** and its color. The height is measured from the top of any
+     base plate, like a color's height, and it applies even when every color has the same
+     thickness, so the border can stand above or below them. **Width** stays the finished
+     width, so the image gets a little smaller to make room. A border can be at most a quarter
+     of that width. For multi-color printers it's a separate part named Border, and on a
+     single extruder it takes its place in the filament-change list.
    - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
      print. A lip covers the print's edge from the front, and the print pushes into a recess
      from the back, face first. You set:

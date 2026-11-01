@@ -118,6 +118,21 @@
       <p class="muted small" data-outline="oval" hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color. Width sets the width of the whole oval.</p>
       <p class="muted small" data-outline="rounded" hidden>The image's corners are rounded off to this radius, cutting away anything in them. Empty areas inside are filled with this color, at the same height as that color.</p>
 
+      <h3>Border</h3>
+      <label class="field check option-line"><input type="checkbox" id="borderOn"> Add a border</label>
+      <div class="fields" data-border hidden>
+        <label class="field" title="How wide the border is, going out from the edge of the shape">Border width
+          <span class="unit"><input type="number" id="borderWidth" min="0.5" step="0.5" value="2"> mm</span>
+        </label>
+        <label class="field" title="Measured from the top of any base plate, like a color's height">Border height
+          <span class="unit"><input type="number" id="borderHeight" min="0.2" step="0.2" value="3"> mm</span>
+        </label>
+        <label class="field">Color
+          <select id="borderColor"></select>
+        </label>
+      </div>
+      <p class="muted small" data-border hidden>A band around the outside edge of the shape, printed as part of it. Width above still sets the finished width, so the image gets a little smaller to make room.</p>
+
       <h3>Base plate</h3>
       <div class="fields">
         <label class="field">Shape

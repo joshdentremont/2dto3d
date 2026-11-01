@@ -69,6 +69,31 @@
     return { labels: out, W: NW, H: NH, ox, oy };
   }
 
+  // A band widthPx wide around the outside of the shape, labelled `label`. Openings enclosed by
+  // the shape are left alone. Returns { labels, W, H, ox, oy }, enlarged to fit the band, with
+  // (ox, oy) being where the old grid now starts.
+  function addBorder(labels, W, H, label, widthPx) {
+    const pad = Math.ceil(widthPx) + 1, NW = W + 2 * pad, NH = H + 2 * pad;
+    const out = new Int16Array(NW * NH).fill(-1);
+    for (let y = 0; y < H; y++) out.set(labels.subarray(y * W, (y + 1) * W), (y + pad) * NW + pad);
+    // Flood the outside from the padding; anything it can't reach counts as part of the shape.
+    const outside = new Uint8Array(NW * NH);
+    const stack = [0];
+    outside[0] = 1;
+    while (stack.length) {
+      const p = stack.pop(), x = p % NW;
+      for (const q of [x > 0 ? p - 1 : -1, x < NW - 1 ? p + 1 : -1, p - NW, p + NW]) {
+        if (q < 0 || q >= NW * NH || outside[q] || out[q] >= 0) continue;
+        outside[q] = 1;
+        stack.push(q);
+      }
+    }
+    const toShape = L3D.frame.distanceSq(Uint8Array.from(outside, v => 1 - v), NW, NH);
+    const limit = widthPx * widthPx;
+    for (let i = 0; i < NW * NH; i++) if (outside[i] && toShape[i] <= limit) out[i] = label;
+    return { labels: out, W: NW, H: NH, ox: pad, oy: pad };
+  }
+
   // Whether a w x d part fits a bedW x bedD bed: 'fits', 'turn' (only if turned 90 degrees) or
   // 'no'.
   function fitsBed(w, d, bedW, bedD) {
@@ -78,7 +103,8 @@
   }
 
   // g: result of contours.trace on traceLabels(...).
-  // palette: [{ name, filament: '#RRGGBB', height }]. scale: mm per pixel.
+  // palette: [{ name, filament: '#RRGGBB', height, ownHeight }]. A colour with ownHeight keeps
+  // its height in a flat model too, as a border does. scale: mm per pixel.
   // settings: { mode: 'flat' | 'layered', thickness, layerHeight, base: { type, thickness, colorIndex } }
   // Returns { parts: [{ name, color, mesh }], body, zTop, swaps, warnings }.
   function build(g, palette, settings, scale) {
@@ -96,7 +122,7 @@
 
     const zTop = [];
     for (const l of present) {
-      zTop[l] = round(z0 + (settings.mode === 'flat' ? snap(settings.thickness) : snap(palette[l].height)));
+      zTop[l] = round(z0 + (settings.mode === 'flat' && !palette[l].ownHeight ? snap(settings.thickness) : snap(palette[l].height)));
     }
 
     const parts = [];
@@ -158,5 +184,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, addOutline, outlineGrowth, maxCornerRadius, fitsBed, build };
+  L3D.model = { traceLabels, addOutline, addBorder, outlineGrowth, maxCornerRadius, fitsBed, build };
 })(globalThis.L3D = globalThis.L3D || {});

@@ -19,6 +19,7 @@
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'), bedWidth: $('bedWidth'), bedDepth: $('bedDepth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
     outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
+    borderOn: $('borderOn'), borderWidth: $('borderWidth'), borderHeight: $('borderHeight'), borderColor: $('borderColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
@@ -54,6 +55,7 @@
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
       outline: { shape: 'none', radius: 5, colorId: null },
+      border: { on: false, width: 2, height: 3, colorId: null },
       frame: {
         on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
         pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
@@ -262,7 +264,7 @@
   // The final grid drawn in filament colours, seen from the front: exactly what will be
   // printed, with any outline, keychain loop and rectangular base plate included.
   function mappedCanvas() {
-    const { labels, W: gw, H: gh } = cache.shown;
+    const { labels, W: gw, H: gh, border = -1 } = cache.shown;
     const base = S.palette.find(p => p.id === S.settings.base.colorId);
     const baseColor = base ? base.filament : '#808080';
     const key = cache.shownId + '|' + S.palette.map(p => p.filament).join() + '|' + baseColor + '|' + S.hover;
@@ -272,14 +274,19 @@
     c.height = gh;
     const ctx = c.getContext('2d');
     const img = ctx.createImageData(gw, gh);
-    // The label after the palette's is the area of a rectangular base plate.
-    const cols = S.palette.map(p => L3D.color.hexToRgb(p.filament)).concat([L3D.color.hexToRgb(baseColor)]);
+    // After the palette's labels come a border's, if there is one, then a rectangular base plate's.
+    const K = S.palette.length;
+    const borderColor = border >= 0 ? S.palette[border] : null;
+    const extra = borderColor ? [borderColor.filament, baseColor] : [baseColor];
+    const cols = S.palette.map(p => p.filament).concat(extra).map(L3D.color.hexToRgb);
     for (let i = 0; i < labels.length; i++) {
       const l = labels[i];
       if (l < 0) continue;
       const o = i * 4, col = cols[l];
+      if (!col) continue; // a colour removed since this grid was built
       img.data[o] = col[0]; img.data[o + 1] = col[1]; img.data[o + 2] = col[2];
-      img.data[o + 3] = S.hover < 0 || S.hover === l ? 255 : 40;
+      const lit = S.hover < 0 || S.hover === l || (borderColor && l === K && S.hover === border);
+      img.data[o + 3] = lit ? 255 : 40;
     }
     ctx.putImageData(img, 0, 0);
     cache.mapped = c;
@@ -476,7 +483,7 @@
   // Colour dropdowns for the base plate and the keychain loop (colours with material only).
   function renderBaseColors() {
     const usable = S.palette.filter(c => !c.none);
-    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop], [el.outlineColor, S.settings.outline]]) {
+    for (const [select, setting] of [[el.baseColor, S.settings.base], [el.loopColor, S.settings.loop], [el.outlineColor, S.settings.outline], [el.borderColor, S.settings.border]]) {
       if (!usable.some(c => c.id === setting.colorId)) setting.colorId = usable.length ? usable[0].id : null;
       select.innerHTML = '';
       for (const c of usable) {
@@ -506,6 +513,10 @@
     s.outline.shape = el.outlineShape.value;
     s.outline.radius = Math.max(0, +el.cornerRadius.value || 0);
     s.outline.colorId = +el.outlineColor.value || s.outline.colorId;
+    s.border.on = el.borderOn.checked;
+    s.border.width = Math.max(0.5, +el.borderWidth.value || 2);
+    s.border.height = Math.max(0.1, +el.borderHeight.value || 3);
+    s.border.colorId = +el.borderColor.value || s.border.colorId;
     s.base.thickness = Math.max(0.1, +el.baseThickness.value || 1);
     s.base.colorId = +el.baseColor.value || s.base.colorId;
     s.loop.on = el.loopOn.checked;
@@ -537,6 +548,7 @@
     document.querySelectorAll('[data-show]').forEach(n => { n.hidden = n.dataset.show !== mode; });
     document.querySelectorAll('[data-base]').forEach(n => { n.hidden = S.settings.base.type === 'none'; });
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
+    document.querySelectorAll('[data-border]').forEach(n => { n.hidden = !S.settings.border.on; });
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
     el.frameView.hidden = !S.settings.frame.on;
@@ -557,7 +569,7 @@
     schedule(0);
   });
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
-    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
+    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {
@@ -575,7 +587,7 @@
   // Settings are kept in this browser between visits. The colour dropdowns are left out:
   // their choices belong to the current image's colours, which aren't saved.
   const SETTINGS_KEY = '2d-to-3d-settings';
-  const colorInputs = [el.baseColor, el.loopColor, el.outlineColor];
+  const colorInputs = [el.baseColor, el.loopColor, el.outlineColor, el.borderColor];
   const remembered = [el.perColor].concat(settingInputs.filter(input => !colorInputs.includes(input)));
 
   function defaultOption(select) {
@@ -644,7 +656,7 @@
         image: new Uint8Array(await file.arrayBuffer()),
         edited: S.work ? await L3D.raster.canvasPng(S.work) : null,
         palette: S.palette,
-        colorIds: { base: S.settings.base.colorId, loop: S.settings.loop.colorId, outline: S.settings.outline.colorId },
+        colorIds: { base: S.settings.base.colorId, loop: S.settings.loop.colorId, outline: S.settings.outline.colorId, border: S.settings.border.colorId },
         values: readValues(projectInputs),
       }), S.name + L3D.project.EXTENSION, 'application/zip');
     } catch (err) {
@@ -673,6 +685,7 @@
     S.settings.base.colorId = p.colorIds.base;
     S.settings.loop.colorId = p.colorIds.loop;
     S.settings.outline.colorId = p.colorIds.outline;
+    S.settings.border.colorId = p.colorIds.border;
     applyVisibility();
     renderPalette();
     schedule(0);
@@ -760,10 +773,12 @@
 
   function gridSize() {
     const s = S.settings;
-    // Width is the finished width, so an oval's image is smaller to leave room for the oval.
+    // Width is the finished width, so the image is smaller to leave room for an oval or border.
     const hasFill = S.palette.some(c => c.id === s.outline.colorId && !c.none);
     const growth = hasFill ? L3D.model.outlineGrowth(s.outline.shape) : 1;
-    const imageWidth = s.widthMm / growth;
+    const hasBorder = s.border.on && S.palette.some(c => c.id === s.border.colorId && !c.none);
+    const border = hasBorder ? Math.min(s.border.width, s.widthMm / 4) : 0;
+    const imageWidth = (s.widthMm - 2 * border) / growth;
     let gw = Math.max(2, Math.round(imageWidth / s.detail));
     let gh = Math.max(2, Math.round(gw * S.src.h / S.src.w));
     let capped = false;
@@ -773,21 +788,21 @@
       gh = Math.max(2, Math.round(gh * k));
       capped = true;
     }
-    return { gw, gh, scale: imageWidth / gw, capped, growth };
+    return { gw, gh, scale: imageWidth / gw, capped, growth, border };
   }
 
   // What the pipeline needs for the current settings. Resampling needs a canvas, so it happens
   // here, and the pixels are only sent when they've changed.
   function makeJob() {
-    const { gw, gh, scale, capped, growth } = gridSize();
-    el.heightMm.textContent = (gh * scale * growth).toFixed(1) + ' mm';
+    const { gw, gh, scale, capped, growth, border } = gridSize();
+    el.heightMm.textContent = (gh * scale * growth + 2 * border).toFixed(1) + ' mm';
     const gridKey = gw + 'x' + gh;
     if (cache.gridKey !== gridKey) {
       cache.grid = { gw, gh, data: L3D.raster.resample(S.src, gw, gh) };
       cache.gridKey = gridKey;
       cache.imageSent = false;
     }
-    const job = { gw, gh, scale, capped, palette: S.palette, settings: S.settings };
+    const job = { gw, gh, scale, capped, borderMm: border, palette: S.palette, settings: S.settings };
     if (!cache.imageSent) {
       job.image = cache.grid.data.data;
       cache.imageSent = true;

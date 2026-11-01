@@ -11,13 +11,13 @@
     const cache = {};
     let imageId = 0;
 
-    // job: { gw, gh, scale, capped, palette, settings }, plus image (RGBA pixels, gw x gh)
-    // whenever they've changed. Returns { counts, shown, shownKey, warnings, model, frame,
-    // openEdges }. shown is the grid for the Mapped view, and shownKey changes when it does.
-    // model and frame are null if there's nothing to build. openEdges is null if the model
-    // is too big to check. All of it can be posted between threads.
+    // job: { gw, gh, scale, capped, borderMm, palette, settings }, plus image (RGBA pixels,
+    // gw x gh) whenever they've changed. Returns { counts, shown, shownKey, warnings, model,
+    // frame, openEdges }. shown is the grid for the Mapped view, and shownKey changes when it
+    // does. model and frame are null if there's nothing to build. openEdges is null if the
+    // model is too big to check. All of it can be posted between threads.
     function run(job) {
-      const { gw, gh, scale, capped, palette, settings: s } = job;
+      const { gw, gh, scale, capped, borderMm, palette, settings: s } = job;
       if (job.image) {
         cache.image = job.image;
         imageId++;
@@ -53,12 +53,27 @@
       if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
         warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
       }
-      const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
+      // A border is one more colour after the palette, with its own height. In the grid its
+      // label comes before a rectangular base plate's.
+      const borderIdx = palette.findIndex(c => c.id === s.border.colorId && !c.none);
+      const borderOn = s.border.on && borderIdx >= 0;
+      const borderKey = borderOn ? [borderIdx, borderMm].join() : '';
+      const colors = borderOn
+        ? palette.concat({ name: 'Border', filament: palette[borderIdx].filament, height: s.border.height, ownHeight: true })
+        : palette;
+      if (borderOn && borderMm < s.border.width) {
+        warnings.push(`The border was limited to ${borderMm.toFixed(1)} mm, a quarter of the model's width.`);
+      }
+      const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + borderKey + '|' + loopKey;
       if (cache.traceKey !== traceKey) {
         let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
         if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
-        let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, palette.length, s);
+        let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, colors.length, s);
         let { ox, oy } = grid;
+        if (borderOn) {
+          const b = L3D.model.addBorder(labels, W, H, palette.length, borderMm / scale);
+          labels = b.labels; W = b.W; H = b.H; ox += b.ox; oy += b.oy;
+        }
         cache.loopMissed = false;
         if (loopOn) {
           const r = L3D.keychain.addLoop(labels, W, H, {
@@ -68,7 +83,7 @@
           if (r.connected) { labels = r.labels; W = r.W; H = r.H; ox += r.ox; oy += r.oy; }
           cache.loopMissed = !r.connected;
         }
-        cache.finalGrid = { labels, W, H, ox, oy };
+        cache.finalGrid = { labels, W, H, ox, oy, border: borderOn ? borderIdx : -1 };
         cache.graph = L3D.contours.trace(labels, W, H, { smooth: s.smooth });
         cache.traceKey = traceKey;
       }
@@ -77,7 +92,7 @@
       }
 
       const baseIdx = Math.max(0, palette.findIndex(c => c.id === s.base.colorId));
-      const model = L3D.model.build(cache.graph, palette, {
+      const model = L3D.model.build(cache.graph, colors, {
         mode: s.mode, thickness: s.thickness, layerHeight: s.layerHeight,
         base: { type: s.base.type, thickness: s.base.thickness, colorIndex: baseIdx },
       }, scale);
