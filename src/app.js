@@ -594,11 +594,12 @@
       el.swaps.innerHTML = '';
       m.swaps.forEach((sw, k) => {
         const li = document.createElement('li');
-        const dot = `<span class="dot" style="background:${sw.color}"></span>`;
+        const dot = '<span class="dot"></span>';
         li.innerHTML = k === 0
           ? `Start with ${dot}<strong></strong>`
           : `At the layer at <strong>${sw.z.toFixed(2)} mm</strong>, change to ${dot}<strong></strong>`;
         li.querySelectorAll('strong')[k === 0 ? 0 : 1].textContent = sw.name;
+        li.querySelector('.dot').style.background = sw.color;
         el.swaps.appendChild(li);
       });
       el.swapsBox.hidden = false;

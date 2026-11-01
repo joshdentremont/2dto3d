@@ -7,6 +7,8 @@ services:
     image: traefik:v3.7
     container_name: traefik
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"

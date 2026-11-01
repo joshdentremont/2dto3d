@@ -21,6 +21,11 @@ Copy `.env.example` to `.env` and set `APP_HOST` to the hostname you want. Then 
 the two setups below. Either way, after changing the app, run `docker compose up -d --build`
 again.
 
+The container is hardened: its filesystem is read-only, it can't gain extra privileges, and
+it keeps only the Linux capabilities nginx needs to start. Pages are served with a strict
+Content-Security-Policy, so browsers only run the app's own files, and HTTPS is enforced with
+HSTS for a year on `APP_HOST`.
+
 ### With a Traefik you already run
 
 1. Check the three Traefik names in `.env` against your Traefik setup, and change them if
