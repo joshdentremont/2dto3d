@@ -210,6 +210,14 @@ It only routes containers that opt in with `traefik.enable=true`.
      in any color. Then push your print into the back, face first, until it snaps past the
      bumps. If there are no bumps, glue or tape it in.
 
+To send a design to someone else, such as a friend with a 3D printer, use **Project file
+(.2d3d)** under **Share**. The file holds your image, any edits, your colors and your settings.
+Send it to them with a link to this page. They drop it onto the image panel, or open it with
+the same button as an image, and get the same design, with **Reset image** still working. It
+keeps their own bed size, so the fit checks are for their printer, and it doesn't change the
+settings their browser remembers until they change one. Nothing is uploaded: the file only
+goes where you send it.
+
 The Export panel also shows a rough guide to filament: per color for a multi-color print, per
 filament change for a single extruder, and for the frame. It assumes PLA, a 0.8 mm solid shell
 and 15% infill, and doesn't include filament purged at color changes. Your slicer's figures
@@ -252,6 +260,7 @@ will be better.
 | `src/export.js` | STL, 3MF and ZIP writers |
 | `src/raster.js` | Image loading, resampling and color sampling (browser only) |
 | `src/viewer.js` | three.js 3D preview |
+| `src/project.js` | Reading and writing .2d3d project files, checking everything in them |
 | `src/pipeline.js` | The build, from image and settings to parts and warnings, with no page code |
 | `src/worker.js` | Runs the pipeline in the background, so the page stays usable during a build |
 | `tests.html`, `tests/tests.js` | Geometry checks on small test grids |

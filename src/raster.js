@@ -13,7 +13,7 @@
       img.onload = () => {
         let w = img.naturalWidth, h = img.naturalHeight;
         if (!w || !h) { w = 1024; h = 1024; }
-        resolve({ img, w, h, url, isSvg: /svg/i.test(file.type) || /\.svg$/i.test(file.name) });
+        resolve({ img, w, h, url, file, isSvg: /svg/i.test(file.type) || /\.svg$/i.test(file.name) });
       };
       img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This file could not be read as an image.')); };
       img.src = url;
@@ -61,6 +61,13 @@
     const out = canvas(cw, ch);
     out.getContext('2d').drawImage(c, x, y, cw, ch, 0, 0, cw, ch);
     return out;
+  }
+
+  // A canvas as PNG bytes.
+  function canvasPng(c) {
+    return new Promise((resolve, reject) => {
+      c.toBlob(blob => (blob ? blob.arrayBuffer().then(b => resolve(new Uint8Array(b)), reject) : reject(new Error('The edited image could not be saved.'))), 'image/png');
+    });
   }
 
   // Pixels of the original image, capped in size, used for colour picking and display.
@@ -114,5 +121,5 @@
     return [med(r), med(g), med(b)];
   }
 
-  L3D.raster = { loadImage, toCanvas, editCanvas, originalPixels, resample, sampleColor };
+  L3D.raster = { loadImage, toCanvas, editCanvas, canvasPng, originalPixels, resample, sampleColor };
 })(globalThis.L3D = globalThis.L3D || {});

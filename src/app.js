@@ -13,6 +13,7 @@
     stage: $('stage'), canvas: $('imageCanvas'), dropHint: $('dropHint'), loupe: $('loupe'),
     imageTools: $('imageTools'), cropBtn: $('cropBtn'), resetImage: $('resetImage'),
     fileInput: $('fileInput'), fileInput2: $('fileInput2'), replaceBtn: $('replaceBtn'), pickHint: $('pickHint'),
+    exportProject: $('exportProject'),
     suggestColors: $('suggestColors'), viewToggle: $('viewToggle'), palette: $('palette'), paletteEmpty: $('paletteEmpty'),
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'), bedWidth: $('bedWidth'), bedDepth: $('bedDepth'),
@@ -67,25 +68,34 @@
   async function loadFile(file) {
     if (!file) return;
     try {
-      const src = await L3D.raster.loadImage(file);
-      if (S.base) URL.revokeObjectURL(S.base.url);
-      S.base = src;
-      S.work = null;
-      useImage(src);
-      S.name = L3D.exporters.safeName(file.name.replace(/\.[^.]+$/, '')) || 'logo';
-      S.palette = [];
-      el.dropHint.hidden = true;
-      el.replaceBtn.hidden = false;
-      el.imageTools.hidden = false;
-      el.suggestColors.disabled = false;
-      el.canvas.classList.remove('empty');
-      endCrop();
-      setView('original');
-      renderPalette();
-      schedule(0);
+      if (L3D.project.isProject(file.name)) {
+        await openProject(file);
+      } else {
+        showImage(await L3D.raster.loadImage(file), null, file.name);
+        renderPalette();
+        schedule(0);
+      }
     } catch (err) {
       alert(err.message);
     }
+  }
+
+  // Starts afresh with this image. work: a canvas of the image with edits, or null.
+  function showImage(src, work, fileName) {
+    if (S.base) URL.revokeObjectURL(S.base.url);
+    S.base = src;
+    S.work = work;
+    useImage(work ? { img: work, w: work.width, h: work.height, isSvg: false } : src);
+    S.name = L3D.exporters.safeName(fileName.replace(/\.[^.]+$/, '')) || 'logo';
+    S.palette = [];
+    el.dropHint.hidden = true;
+    el.replaceBtn.hidden = false;
+    el.imageTools.hidden = false;
+    el.suggestColors.disabled = false;
+    el.exportProject.disabled = false;
+    el.canvas.classList.remove('empty');
+    endCrop();
+    setView('original');
   }
 
   // Makes this the image everything works from, and clears what was worked out from the last.
@@ -572,18 +582,14 @@
     return Array.from(select.options).find(o => o.defaultSelected) || select.options[0];
   }
 
-  // Storage can be unavailable (a private window, for example): settings just aren't kept.
-  function saveSettings() {
+  function readValues(inputs) {
     const values = {};
-    for (const input of remembered) values[input.id] = input.type === 'checkbox' ? input.checked : input.value;
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(values)); } catch (err) { /* not kept */ }
+    for (const input of inputs) values[input.id] = input.type === 'checkbox' ? input.checked : input.value;
+    return values;
   }
 
-  function restoreSettings() {
-    let values = null;
-    try { values = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch (err) { /* nothing to restore */ }
-    if (!values) return;
-    for (const input of remembered) {
+  function writeValues(inputs, values) {
+    for (const input of inputs) {
       if (!(input.id in values)) continue;
       if (input.type === 'checkbox') {
         input.checked = !!values[input.id];
@@ -595,19 +601,85 @@
     }
   }
 
-  function resetSettings() {
-    try { localStorage.removeItem(SETTINGS_KEY); } catch (err) { /* nothing to remove */ }
-    for (const input of remembered) {
+  function setDefaults(inputs) {
+    for (const input of inputs) {
       if (input.type === 'checkbox') input.checked = input.defaultChecked;
       else if (input.tagName === 'SELECT') input.value = defaultOption(input).value;
       else input.value = input.defaultValue;
     }
+  }
+
+  // Storage can be unavailable (a private window, for example): settings just aren't kept.
+  function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(readValues(remembered))); } catch (err) { /* not kept */ }
+  }
+
+  function restoreSettings() {
+    let values = null;
+    try { values = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch (err) { /* nothing to restore */ }
+    if (values) writeValues(remembered, values);
+  }
+
+  function resetSettings() {
+    try { localStorage.removeItem(SETTINGS_KEY); } catch (err) { /* nothing to remove */ }
+    setDefaults(remembered);
     readSettings();
     applyVisibility();
     renderPalette();
     schedule(0);
   }
   el.resetSettings.addEventListener('click', resetSettings);
+
+  // ---------- project files ----------
+
+  // Everything but the bed size travels with a project: that belongs to whoever is printing.
+  const projectInputs = remembered.filter(input => input !== el.bedWidth && input !== el.bedDepth);
+
+  async function saveProject() {
+    try {
+      const file = S.base.file;
+      readSettings();
+      L3D.exporters.download(L3D.project.pack({
+        name: S.name, imageName: file.name, imageType: file.type,
+        image: new Uint8Array(await file.arrayBuffer()),
+        edited: S.work ? await L3D.raster.canvasPng(S.work) : null,
+        palette: S.palette,
+        colorIds: { base: S.settings.base.colorId, loop: S.settings.loop.colorId, outline: S.settings.outline.colorId },
+        values: readValues(projectInputs),
+      }), S.name + L3D.project.EXTENSION, 'application/zip');
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  // Opening a project doesn't change the settings remembered in this browser, until the next
+  // time one is changed here.
+  async function openProject(file) {
+    const p = L3D.project.unpack(new Uint8Array(await file.arrayBuffer()));
+    const src = await L3D.raster.loadImage(new File([p.image], p.imageName || 'image', { type: p.imageType }));
+    let work = null;
+    if (p.edited) {
+      const edited = await L3D.raster.loadImage(new File([p.edited], 'edited.png', { type: 'image/png' }));
+      work = L3D.raster.toCanvas(edited);
+      URL.revokeObjectURL(edited.url);
+    }
+    showImage(src, work, p.name || file.name);
+    S.palette = p.palette;
+    S.nextId = Math.max(S.nextId, ...p.palette.map(c => c.id + 1));
+    setDefaults(projectInputs);
+    writeValues(projectInputs, p.values);
+    readSettings();
+    // The color dropdowns are filled in from these by renderPalette.
+    S.settings.base.colorId = p.colorIds.base;
+    S.settings.loop.colorId = p.colorIds.loop;
+    S.settings.outline.colorId = p.colorIds.outline;
+    applyVisibility();
+    renderPalette();
+    schedule(0);
+    flashHint('Opened the project. Your bed size is unchanged.');
+  }
+
+  el.exportProject.addEventListener('click', saveProject);
 
   // ---------- build pipeline ----------
 

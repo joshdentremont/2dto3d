@@ -27,16 +27,16 @@
         <div class="drop-hint" id="dropHint">
           <p><strong>Drop an image here</strong></p>
           <label class="btn primary">Choose image…
-            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg" hidden>
+            <input id="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg,.2d3d" hidden>
           </label>
-          <p class="muted">PNG, JPG, WebP or SVG. Logos with flat colors work best.</p>
+          <p class="muted">PNG, JPG, WebP or SVG. Logos with flat colors work best. You can also open a .2d3d project file someone sent you.</p>
         </div>
         <canvas id="loupe" class="loupe" width="96" height="120" hidden></canvas>
       </div>
       <div class="row-between">
         <p class="hint" id="pickHint">Load an image, then click it to pick each color for the model.</p>
         <label class="btn small" id="replaceBtn" hidden>Replace image…
-          <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg" hidden>
+          <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg,.2d3d" hidden>
         </label>
       </div>
       <div class="image-tools" id="imageTools" hidden>
@@ -252,6 +252,13 @@
         <p class="muted small" id="standHowTo" hidden>Print the stand as exported, on its side. Then push its short end into the slot in the back of the frame, with the long end flat on the table.</p>
         <p class="muted small" id="frameEstimate"></p>
       </div>
+      <div class="export-group">
+        <h3>Share</h3>
+        <p class="muted small">Save your design to send to someone, such as a friend with a 3D printer. The file includes your image, colors and settings. They open it on this page, using their own bed size.</p>
+        <div class="exports">
+          <button type="button" class="btn primary" id="exportProject" disabled>Project file (.2d3d)</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -293,6 +300,7 @@
 <script src="src/raster.js"></script>
 <script src="src/viewer.js"></script>
 <script src="src/pipeline.js"></script>
+<script src="src/project.js"></script>
 <script src="src/app.js"></script>
 </body>
 </html>

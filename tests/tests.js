@@ -719,6 +719,72 @@
       results.push(res);
     }
 
+    // Project files.
+    {
+      const res = { name: 'project files', errors: [] };
+      const P = L3D.project;
+      const image = new Uint8Array(5000).map((v, i) => i % 251), edited = new Uint8Array(300).fill(7);
+      const palette = [
+        { id: 3, rgb: [255, 0, 0], filament: '#FF0000', name: 'Red', autoName: false, none: false, height: 1.2 },
+        { id: 7, rgb: [0, 0, 255], filament: '#0000ff', name: 'Color 2', autoName: true, none: true, height: 2 },
+      ];
+      const project = over => Object.assign({
+        name: 'logo', imageName: 'logo.png', imageType: 'image/png', image, edited, palette,
+        colorIds: { base: 3, loop: null, outline: 7 }, values: { perColor: true, widthMm: '120', frameOn: false },
+      }, over);
+      const refused = (what, bytes) => {
+        try { P.unpack(bytes); res.errors.push(`${what} was accepted`); } catch (err) { if (!err.message) res.errors.push(`${what}: no message`); }
+      };
+      // Rewrites a good project's JSON, to make a file a person could have tampered with.
+      const tampered = change => {
+        const meta = JSON.parse(fflate.strFromU8(fflate.unzipSync(P.pack(project()))['project.json']));
+        change(meta);
+        return fflate.zipSync({ 'project.json': fflate.strToU8(JSON.stringify(meta)), image });
+      };
+
+      const back = P.unpack(P.pack(project()));
+      if (back.name !== 'logo' || back.imageName !== 'logo.png' || back.imageType !== 'image/png') res.errors.push('names lost');
+      if (back.image.length !== 5000 || back.image[300] !== image[300]) res.errors.push('image changed');
+      if (!back.edited || back.edited.length !== 300) res.errors.push('edited image lost');
+      if (back.palette.length !== 2 || back.palette[0].name !== 'Red' || back.palette[1].filament !== '#0000FF') res.errors.push('palette changed');
+      if (!back.palette[1].autoName || !back.palette[1].none || back.palette[0].id !== 3) res.errors.push('color flags lost');
+      if (back.colorIds.base !== 3 || back.colorIds.loop !== null || back.colorIds.outline !== 7) res.errors.push(`color ids ${JSON.stringify(back.colorIds)}`);
+      if (back.values.perColor !== true || back.values.widthMm !== '120' || back.values.frameOn !== false) res.errors.push('settings changed');
+      if (P.unpack(P.pack(project({ edited: null }))).edited !== null) res.errors.push('an unedited image gained an edit');
+      if (!P.isProject('Logo.2D3D') || P.isProject('logo.png')) res.errors.push('isProject');
+
+      refused('random bytes', new Uint8Array(500).fill(66));
+      refused('an empty file', new Uint8Array(0));
+      refused('a ZIP of something else', fflate.zipSync({ 'readme.txt': fflate.strToU8('hello') }));
+      refused('another format', tampered(m => { m.format = 'other'; }));
+      refused('a missing image', fflate.zipSync({ 'project.json': fflate.unzipSync(P.pack(project()))['project.json'] }));
+      refused('a non-image type', tampered(m => { m.imageType = 'text/html'; }));
+      refused('a palette that is not a list', tampered(m => { m.palette = 'red'; }));
+      refused('a script in a filament color', tampered(m => { m.palette[0].filament = '"><script>alert(1)</script>'; }));
+      refused('a script in a picked color', tampered(m => { m.palette[0].rgb = ['"><script>', 0, 0]; }));
+      refused('a color out of range', tampered(m => { m.palette[0].rgb = [999, 0, 0]; }));
+      refused('a height that is not a number', tampered(m => { m.palette[0].height = '1'; }));
+      refused('a zero height', tampered(m => { m.palette[0].height = 0; }));
+      refused('a name that is not text', tampered(m => { m.palette[0].name = { a: 1 }; }));
+      refused('a bad color id', tampered(m => { m.palette[0].id = -1; }));
+      refused('two colors with one id', tampered(m => { m.palette[1].id = m.palette[0].id; }));
+      refused('a newer version', tampered(m => { m.version = 99; }));
+      try { P.unpack(tampered(m => { m.version = 99; })); } catch (err) { if (!/newer/.test(err.message)) res.errors.push(`newer version message: ${err.message}`); }
+
+      // Things that are ignored or trimmed, not refused. Extra files inside aren't read.
+      const odd = P.unpack(tampered(m => {
+        m.values = { widthMm: '50', evil: { a: 1 }, big: 5, long: 'x'.repeat(500) };
+        m.colorIds = { base: 'x', loop: -1 };
+        m.palette[0].name = 'y'.repeat(500);
+        m.palette[0].extra = 'dropped';
+      }));
+      if (odd.values.widthMm !== '50' || 'evil' in odd.values || 'big' in odd.values || odd.values.long !== '') res.errors.push(`values ${JSON.stringify(odd.values)}`);
+      if (odd.colorIds.base !== null || odd.colorIds.loop !== null || odd.colorIds.outline !== null) res.errors.push('bad color ids kept');
+      if (odd.palette[0].name.length !== 200 || 'extra' in odd.palette[0]) res.errors.push('color not cleaned');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     // Printer bed fit.
     {
       const fit = L3D.model.fitsBed;
