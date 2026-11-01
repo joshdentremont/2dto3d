@@ -29,6 +29,7 @@
     frameHowTo: $('frameHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
+    estimate: $('estimate'), swapsEstimate: $('swapsEstimate'), frameEstimate: $('frameEstimate'),
     resetSettings: $('resetSettings'), swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
     singleOn: $('singleOn'), singleOff: $('singleOff'),
   };
@@ -825,6 +826,8 @@
     el.exportFrame.disabled = !(has && S.frame);
     el.stats.innerHTML = '';
     el.swapsBox.hidden = true;
+    el.estimate.hidden = true;
+    el.frameEstimate.textContent = '';
     if (!has) return;
 
     const b = L3D.mesh.bounds(m.parts.map(p => p.mesh));
@@ -838,6 +841,8 @@
     const dim = i => (b.max[i] - b.min[i]).toFixed(1);
     el.stats.innerHTML = `${dim(0)} × ${dim(1)} × ${dim(2)} mm · ${tris.toLocaleString()} triangles ${check ? '· ' + check : ''}`;
 
+    showEstimates(m);
+
     if (m.swaps.length) {
       el.swaps.innerHTML = '';
       m.swaps.forEach((sw, k) => {
@@ -848,9 +853,45 @@
           : `At the layer at <strong>${sw.z.toFixed(2)} mm</strong>, change to ${dot}<strong></strong>`;
         li.querySelectorAll('strong')[k === 0 ? 0 : 1].textContent = sw.name;
         li.querySelector('.dot').style.background = sw.color;
+        li.append(` (about ${L3D.estimate.formatGrams(sw.volume * m.bodyRatio)})`);
         el.swaps.appendChild(li);
       });
       el.swapsBox.hidden = false;
+    }
+  }
+
+  // Rough filament figures. A multi-color print uses each part's plastic; a single
+  // extruder prints the one body, so its filaments are bands of layers scaled to its plastic.
+  function showEstimates(m) {
+    const E = L3D.estimate, line = v => `${E.formatGrams(v)}, ${E.formatMetres(v)}`;
+    const rows = m.parts.map(p => ({ name: p.name, color: p.color, plastic: E.plastic(p.mesh) }));
+    const total = rows.reduce((a, r) => a + r.plastic, 0);
+    const list = document.createElement('ul');
+    for (const r of rows) {
+      const li = document.createElement('li');
+      const dot = document.createElement('span'), name = document.createElement('span'), amount = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = r.color;
+      name.textContent = r.name;
+      amount.className = 'amount';
+      amount.textContent = line(r.plastic);
+      li.append(dot, name, amount);
+      list.append(li);
+    }
+    const sum = document.createElement('div'), note = document.createElement('p');
+    sum.className = 'total';
+    sum.textContent = `About ${line(total)}`;
+    note.className = 'muted small';
+    note.textContent = 'A rough guide for PLA at 15% infill. Your slicer knows your real settings. Filament purged at color changes isn\'t included.';
+    el.estimate.replaceChildren(list, sum, note);
+    el.estimate.hidden = false;
+
+    const body = E.plastic(m.body);
+    m.bodyRatio = body / L3D.mesh.volume(m.body);
+    el.swapsEstimate.textContent = `About ${line(body)} in all.`;
+    if (S.frame) {
+      const frame = E.plastic(S.frame.mesh);
+      el.frameEstimate.textContent = `About ${line(frame)}.`;
     }
   }
 

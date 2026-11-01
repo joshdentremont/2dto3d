@@ -100,15 +100,20 @@
     }
 
     const parts = [];
+    const columns = []; // { from, to, area } of each part, for working out layer bands
     if (hasBase) {
       const zt = [];
       for (const l of g.polys.keys()) zt[l] = z0;
-      parts.push({ name: 'Base', color: palette[baseIdx].filament, mesh: L3D.mesh.buildSolid(g, zt, 0, scale) });
+      const mesh = L3D.mesh.buildSolid(g, zt, 0, scale);
+      parts.push({ name: 'Base', color: palette[baseIdx].filament, mesh });
+      columns.push({ from: 0, to: z0, area: L3D.mesh.volume(mesh) / z0 });
     }
     for (const l of present) {
       const zt = [];
       zt[l] = zTop[l];
-      parts.push({ name: palette[l].name, color: palette[l].filament, mesh: L3D.mesh.buildSolid(g, zt, z0, scale) });
+      const mesh = L3D.mesh.buildSolid(g, zt, z0, scale);
+      parts.push({ name: palette[l].name, color: palette[l].filament, mesh });
+      columns.push({ from: z0, to: zTop[l], area: L3D.mesh.volume(mesh) / (zTop[l] - z0) });
     }
 
     // One stepped solid holding every colour (and the plate), for single-extruder printing.
@@ -119,19 +124,20 @@
     // Filament changes for a single extruder: each colour must be loaded while its top
     // layers print, so colours are stacked in order of height. A change is reported as the
     // first layer printed in the new colour (identified by its top Z, as slicers show it),
-    // i.e. one layer above where the previous colour ends.
+    // i.e. one layer above where the previous colour ends. Each filament prints a whole band
+    // of layers, so `volume` is that band of the single body (mm³), not one colour's part.
     const swaps = [];
     const nextLayer = z => round(z + lh);
     if (settings.mode === 'layered' && present.length) {
       const order = present.slice().sort((a, b) => zTop[a] - zTop[b]);
       const same = (a, b) => a.filament.toLowerCase() === b.filament.toLowerCase();
       let cur = hasBase ? palette[baseIdx] : palette[order[0]];
-      swaps.push({ z: 0, name: cur.name, color: cur.filament });
+      swaps.push({ z: 0, from: 0, name: cur.name, color: cur.filament });
       let prevTop = z0;
       for (let k = 0; k < order.length; k++) {
         const p = palette[order[k]];
         if (!same(p, cur)) {
-          swaps.push({ z: nextLayer(prevTop), name: p.name, color: p.filament });
+          swaps.push({ z: nextLayer(prevTop), from: prevTop, name: p.name, color: p.filament });
           cur = p;
         }
         prevTop = zTop[order[k]];
@@ -143,6 +149,11 @@
         }
       }
     }
+
+    swaps.forEach((sw, k) => {
+      const end = k + 1 < swaps.length ? swaps[k + 1].from : Infinity;
+      sw.volume = columns.reduce((v, c) => v + c.area * Math.max(0, Math.min(c.to, end) - Math.max(c.from, sw.from)), 0);
+    });
 
     return { parts, body, zTop, z0, swaps, warnings };
   }

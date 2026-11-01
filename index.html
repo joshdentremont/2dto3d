@@ -16,7 +16,7 @@
   <section class="col">
     <div class="panel">
       <div class="panel-head">
-        <h2><span class="step">1</span> Image</h2>
+        <h2>Image</h2>
         <div class="seg" id="viewToggle">
           <button type="button" data-view="original" class="on">Original</button>
           <button type="button" data-view="mapped">Mapped</button>
@@ -52,7 +52,7 @@
 
     <div class="panel">
       <div class="panel-head">
-        <h2><span class="step">2</span> Colors</h2>
+        <h2>Colors</h2>
         <button type="button" class="btn small" id="suggestColors" title="Add the image's main colors to the list" disabled>Suggest colors</button>
       </div>
       <p class="muted" id="paletteEmpty">No colors yet. Click the image to pick the colors you want to print, or use Suggest colors. Every pixel will use the closest picked color.</p>
@@ -60,7 +60,7 @@
     </div>
 
     <div class="panel">
-      <h2><span class="step">3</span> Shape</h2>
+      <h2>Shape</h2>
       <div class="mode">
         <label class="mode-opt">
           <input type="checkbox" id="perColor">
@@ -200,12 +200,48 @@
         <button type="button" class="btn small" id="resetSettings">Reset settings</button>
       </div>
     </div>
+
+    <div class="panel export-panel">
+      <h2>Export</h2>
+      <div class="export-group">
+        <h3>Multi-color printer</h3>
+        <p class="muted small">For AMS, MMU and tool changers. Open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.</p>
+        <div class="exports">
+          <button type="button" class="btn primary" id="export3mf" disabled>3MF (all colors)</button>
+          <button type="button" class="btn primary" id="exportZip" disabled>STL per color (.zip)</button>
+        </div>
+        <div class="estimate" id="estimate" hidden></div>
+      </div>
+      <div class="export-group">
+        <h3>Single extruder</h3>
+        <p class="muted small" id="singleOff">Turn on <strong>Different height per color</strong> under Shape to print the colors with one extruder. Each color then shows on top where it is highest, and you change filament at set layers.</p>
+        <div id="singleOn" hidden>
+          <p class="muted small">Print the single body and change filament at the layers below.</p>
+          <div class="exports">
+            <button type="button" class="btn primary" id="exportStl" disabled>STL (single body)</button>
+          </div>
+          <div id="swapsBox" hidden>
+            <ol class="swaps" id="swaps"></ol>
+            <p class="muted small" id="swapsEstimate"></p>
+            <p class="muted small">In your slicer's layer preview, go to each layer listed and add a filament change (or pause) there. The heights are the top of that layer, as shown on the slicer's layer slider.</p>
+          </div>
+        </div>
+      </div>
+      <div class="export-group" id="frameExport" hidden>
+        <h3>Frame</h3>
+        <p class="muted small" id="frameHowTo">Print it as exported, face down, in any color.</p>
+        <div class="exports">
+          <button type="button" class="btn primary" id="exportFrame" disabled>Frame (.stl)</button>
+        </div>
+        <p class="muted small" id="frameEstimate"></p>
+      </div>
+    </div>
   </section>
 
   <section class="col">
     <div class="panel viewer-panel">
       <div class="panel-head">
-        <h2><span class="step">4</span> Preview</h2>
+        <h2>Preview</h2>
         <span class="stats" id="stats"></span>
       </div>
       <div class="viewer" id="viewer">
@@ -220,40 +256,7 @@
         <div class="busy" id="busy" hidden>Building…</div>
       </div>
       <p class="muted small">Drag to rotate · scroll to zoom · right-drag to pan</p>
-    </div>
-
-    <div class="panel">
-      <h2><span class="step">5</span> Export</h2>
       <div class="warnings" id="warnings"></div>
-      <div class="export-group">
-        <h3>Multi-color printer</h3>
-        <p class="muted small">For AMS, MMU and tool changers. Open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.</p>
-        <div class="exports">
-          <button type="button" class="btn primary" id="export3mf" disabled>3MF (all colors)</button>
-          <button type="button" class="btn primary" id="exportZip" disabled>STL per color (.zip)</button>
-        </div>
-      </div>
-      <div class="export-group">
-        <h3>Single extruder</h3>
-        <p class="muted small" id="singleOff">Turn on <strong>Different height per color</strong> in step 3 to print the colors with one extruder. Each color then shows on top where it is highest, and you change filament at set layers.</p>
-        <div id="singleOn" hidden>
-          <p class="muted small">Print the single body and change filament at the layers below.</p>
-          <div class="exports">
-            <button type="button" class="btn primary" id="exportStl" disabled>STL (single body)</button>
-          </div>
-          <div id="swapsBox" hidden>
-            <ol class="swaps" id="swaps"></ol>
-            <p class="muted small">In your slicer's layer preview, go to each layer listed and add a filament change (or pause) there. The heights are the top of that layer, as shown on the slicer's layer slider.</p>
-          </div>
-        </div>
-      </div>
-      <div class="export-group" id="frameExport" hidden>
-        <h3>Frame</h3>
-        <p class="muted small" id="frameHowTo">Print it as exported, face down, in any color.</p>
-        <div class="exports">
-          <button type="button" class="btn primary" id="exportFrame" disabled>Frame (.stl)</button>
-        </div>
-      </div>
     </div>
   </section>
 </main>
@@ -268,6 +271,7 @@
 <script src="src/model.js"></script>
 <script src="src/keychain.js"></script>
 <script src="src/frame.js"></script>
+<script src="src/estimate.js"></script>
 <script src="src/export.js"></script>
 <script src="src/raster.js"></script>
 <script src="src/viewer.js"></script>

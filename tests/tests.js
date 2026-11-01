@@ -567,6 +567,38 @@
       results.push({ name: 'printer bed fit', ok: !errors.length, errors });
     }
 
+    // Filament estimates.
+    {
+      const res = { name: 'filament estimates', errors: [] };
+      const E = L3D.estimate;
+      const solidOf = (W, H, top, scale) => L3D.mesh.buildSolid(L3D.contours.trace(new Int16Array(W * H), W, H, { smooth: false }), [top], 0, scale);
+      // 100 x 100 x 2 mm plate: 20 cm³ of nearly solid plastic.
+      const plate = solidOf(100, 100, 2, 1);
+      if (Math.abs(E.surfaceArea(plate) - (2 * 10000 + 400 * 2)) > 1) res.errors.push(`plate surface ${E.surfaceArea(plate)}`);
+      const plasticShare = m => E.plastic(m) / L3D.mesh.volume(m);
+      if (plasticShare(plate) < 0.75) res.errors.push(`plate is only ${plasticShare(plate).toFixed(2)} solid`);
+      // A deep block is mostly infill, and nothing is ever more than solid.
+      const block = solidOf(60, 60, 60, 1);
+      if (plasticShare(block) > 0.3) res.errors.push(`block is ${plasticShare(block).toFixed(2)} solid`);
+      if (plasticShare(solidOf(5, 5, 1, 1)) > 1) res.errors.push('more than solid');
+      if (Math.abs(E.grams(20000) - 24.8) > 1e-9) res.errors.push(`20 cm³ of PLA is ${E.grams(20000)} g`);
+      if (Math.abs(E.metres(2405) - 1) > 0.01) res.errors.push(`2405 mm³ is ${E.metres(2405)} m`);
+
+      // Layer bands of a stepped body: 2 x 4 grid, heights 1, 2 and 3 over a 1 mm base.
+      const g0 = grid(['aabb', 'aacc']);
+      const g = L3D.contours.trace(g0.labels, g0.W, g0.H, { smooth: false });
+      const palette = [['A', '#111111', 1], ['B', '#222222', 2], ['C', '#333333', 3]].map(([name, filament, height]) => ({ name, filament, height }));
+      const settings = { mode: 'layered', thickness: 2, layerHeight: 0, base: { type: 'shape', thickness: 1, colorIndex: 0 } };
+      const m = L3D.model.build(g, palette, settings, 1);
+      const sum = m.swaps.reduce((a, sw) => a + sw.volume, 0);
+      if (!close(sum, L3D.mesh.volume(m.body), 1e-3)) res.errors.push(`bands add up to ${sum}, body is ${L3D.mesh.volume(m.body)}`);
+      // Base and A: all 8 cells up to z 2 = 16. B: 4 cells for z 2-3 = 4. C: 2 cells for z 3-4 = 2.
+      const want = [16, 4, 2], got = m.swaps.map(sw => Math.round(sw.volume * 10) / 10);
+      if (got.join() !== want.join()) res.errors.push(`band volumes ${got}, expected ${want}`);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 

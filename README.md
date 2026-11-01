@@ -190,6 +190,11 @@ It only routes containers that opt in with `traefik.enable=true`.
      in any color. Then push your print into the back, face first, until it snaps past the
      bumps. If there are no bumps, glue or tape it in.
 
+The Export panel also shows a rough guide to filament: per color for a multi-color print, per
+filament change for a single extruder, and for the frame. It assumes PLA, a 0.8 mm solid shell
+and 15% infill, and doesn't include filament purged at color changes. Your slicer's figures
+will be better.
+
 ## Loading the model into a slicer
 
 **Multi-color printer**
@@ -222,6 +227,7 @@ It only routes containers that opt in with `traefik.enable=true`.
 | `src/mesh.js` | Builds closed meshes from the outlines; watertight and volume checks |
 | `src/model.js` | Applies the mode, heights and base plate, and works out filament changes |
 | `src/keychain.js` | Adds the keychain loop to the color grid before tracing |
+| `src/estimate.js` | Rough filament estimates |
 | `src/frame.js` | Builds the front-lip frame from the print's footprint |
 | `src/export.js` | STL, 3MF and ZIP writers |
 | `src/raster.js` | Image loading, resampling and color sampling (browser only) |
