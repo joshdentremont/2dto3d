@@ -39,6 +39,15 @@
           <input id="fileInput2" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg" hidden>
         </label>
       </div>
+      <div class="image-tools" id="imageTools" hidden>
+        <button type="button" class="btn small" data-tool="rotate-left" title="Rotate a quarter turn to the left">↺ Rotate</button>
+        <button type="button" class="btn small" data-tool="rotate-right" title="Rotate a quarter turn to the right">↻ Rotate</button>
+        <button type="button" class="btn small" data-tool="flip-h" title="Flip left to right">⇆ Flip</button>
+        <button type="button" class="btn small" data-tool="flip-v" title="Flip top to bottom">⇅ Flip</button>
+        <button type="button" class="btn small" data-tool="crop" id="cropBtn" title="Drag a box on the image to crop it">Crop</button>
+        <button type="button" class="btn small" data-tool="trim" title="Remove empty margins: transparent, or the background color">Trim margins</button>
+        <button type="button" class="btn small" data-tool="reset" id="resetImage" title="Undo all edits to the image" disabled>Reset image</button>
+      </div>
     </div>
 
     <div class="panel">
@@ -97,7 +106,7 @@
           <select id="outlineColor"></select>
         </label>
       </div>
-      <p class="muted small" data-outline="oval" hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color.</p>
+      <p class="muted small" data-outline="oval" hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color. Width sets the width of the whole oval.</p>
       <p class="muted small" data-outline="rounded" hidden>The image's corners are rounded off to this radius, cutting away anything in them. Empty areas inside are filled with this color, at the same height as that color.</p>
 
       <h3>Base plate</h3>

@@ -2,6 +2,9 @@
 (function (L3D) {
   'use strict';
 
+  // Longest side (pixels) an SVG is drawn at when it's edited: twice the largest print grid.
+  const SVG_EDIT_SIDE = 3200;
+
   // Loads PNG / JPG / WebP / GIF / SVG into an <img>. SVGs without a size get 1024 px.
   function loadImage(file) {
     return new Promise((resolve, reject) => {
@@ -22,6 +25,42 @@
     c.width = w;
     c.height = h;
     return c;
+  }
+
+  // An editable copy of the image. SVGs stay sharp by being drawn at print size, which an edit
+  // can't do, so they're drawn large here instead.
+  function toCanvas(src) {
+    const k = src.isSvg ? Math.max(1, SVG_EDIT_SIDE / Math.max(src.w, src.h)) : 1;
+    const w = Math.round(src.w * k), h = Math.round(src.h * k);
+    const c = canvas(w, h);
+    c.getContext('2d').drawImage(src.img, 0, 0, w, h);
+    return c;
+  }
+
+  // A new canvas with one edit applied. op: { type: 'rotate', dir: 1 (clockwise) or -1 },
+  // { type: 'flip', axis: 'h' or 'v' }, or { type: 'crop', u0, v0, u1, v1 } as fractions of
+  // the width and height.
+  function editCanvas(c, op) {
+    const w = c.width, h = c.height;
+    if (op.type === 'rotate') {
+      const out = canvas(h, w), ctx = out.getContext('2d');
+      ctx.translate(op.dir > 0 ? h : 0, op.dir > 0 ? 0 : w);
+      ctx.rotate(op.dir * Math.PI / 2);
+      ctx.drawImage(c, 0, 0);
+      return out;
+    }
+    if (op.type === 'flip') {
+      const out = canvas(w, h), ctx = out.getContext('2d');
+      ctx.translate(op.axis === 'h' ? w : 0, op.axis === 'h' ? 0 : h);
+      ctx.scale(op.axis === 'h' ? -1 : 1, op.axis === 'h' ? 1 : -1);
+      ctx.drawImage(c, 0, 0);
+      return out;
+    }
+    const x = Math.round(op.u0 * w), y = Math.round(op.v0 * h);
+    const cw = Math.max(1, Math.round(op.u1 * w) - x), ch = Math.max(1, Math.round(op.v1 * h) - y);
+    const out = canvas(cw, ch);
+    out.getContext('2d').drawImage(c, x, y, cw, ch, 0, 0, cw, ch);
+    return out;
   }
 
   // Pixels of the original image, capped in size, used for colour picking and display.
@@ -75,5 +114,5 @@
     return [med(r), med(g), med(b)];
   }
 
-  L3D.raster = { loadImage, originalPixels, resample, sampleColor };
+  L3D.raster = { loadImage, toCanvas, editCanvas, originalPixels, resample, sampleColor };
 })(globalThis.L3D = globalThis.L3D || {});

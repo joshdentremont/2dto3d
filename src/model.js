@@ -12,6 +12,13 @@
     return { labels: Int16Array.from(labels, l => (l < 0 ? paletteLength : l)), W, H };
   }
 
+  // How much wider and taller an outline makes the model than the image. An oval passes
+  // through the image's corners, so it's √2 times the image's size. Rounded corners cut into
+  // the image, so they don't change it.
+  function outlineGrowth(shape) {
+    return shape === 'oval' ? Math.SQRT2 : 1;
+  }
+
   // Largest corner radius (pixels) for rounded corners on a W x H image: at this radius the
   // short sides are fully rounded.
   function maxCornerRadius(W, H) {
@@ -132,5 +139,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, addOutline, maxCornerRadius, build };
+  L3D.model = { traceLabels, addOutline, outlineGrowth, maxCornerRadius, build };
 })(globalThis.L3D = globalThis.L3D || {});

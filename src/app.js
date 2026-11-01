@@ -7,10 +7,13 @@
   const SAME_COLOR_DE = 3;      // picks closer than this (CIELAB ΔE) select the existing colour
   const CHECK_LIMIT = 1500000;  // skip the watertight check above this many triangles
   const MIN_FRAME_LIP = 0.4;    // thinnest lip (mm) left at the front of a frame
+  const MIN_CROP = 4;           // smallest crop drag (CSS pixels); anything less is a click
+  const PICK_HINT = 'Click the image to add each color you want in the model. Every pixel uses the closest picked color.';
 
   const $ = id => document.getElementById(id);
   const el = {
     stage: $('stage'), canvas: $('imageCanvas'), dropHint: $('dropHint'), loupe: $('loupe'),
+    imageTools: $('imageTools'), cropBtn: $('cropBtn'), resetImage: $('resetImage'),
     fileInput: $('fileInput'), fileInput2: $('fileInput2'), replaceBtn: $('replaceBtn'), pickHint: $('pickHint'),
     viewToggle: $('viewToggle'), palette: $('palette'), paletteEmpty: $('paletteEmpty'),
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
@@ -31,7 +34,12 @@
   };
 
   const S = {
-    src: null,          // loaded image { img, w, h, isSvg }
+    base: null,         // the image as loaded { img, w, h, isSvg, url }
+    work: null,         // canvas holding the image with any edits, or null
+    src: null,          // what everything else uses: base, or work once edited
+    cropping: false,    // Crop pressed, waiting for a drag
+    cropBox: null,      // the drag so far { x0, y0, x1, y1 }, in CSS pixels
+    cropClick: false,   // the click that ends a drag is not a colour pick
     orig: null,         // { canvas, data, w, h } for display and picking
     name: 'logo',
     palette: [],        // [{ id, rgb, filament, name, none, height }]
@@ -60,22 +68,31 @@
     if (!file) return;
     try {
       const src = await L3D.raster.loadImage(file);
-      if (S.src) URL.revokeObjectURL(S.src.url);
-      S.src = src;
-      S.orig = L3D.raster.originalPixels(src, MAX_ORIGINAL);
+      if (S.base) URL.revokeObjectURL(S.base.url);
+      S.base = src;
+      S.work = null;
+      useImage(src);
       S.name = L3D.exporters.safeName(file.name.replace(/\.[^.]+$/, '')) || 'logo';
       S.palette = [];
-      for (const k of Object.keys(cache)) delete cache[k];
       el.dropHint.hidden = true;
       el.replaceBtn.hidden = false;
+      el.imageTools.hidden = false;
       el.canvas.classList.remove('empty');
-      el.pickHint.textContent = 'Click the image to add each color you want in the model. Every pixel uses the closest picked color.';
+      endCrop();
       setView('original');
       renderPalette();
       schedule(0);
     } catch (err) {
       alert(err.message);
     }
+  }
+
+  // Makes this the image everything works from, and clears what was worked out from the last.
+  function useImage(src) {
+    S.src = src;
+    S.orig = L3D.raster.originalPixels(src, MAX_ORIGINAL);
+    for (const k of Object.keys(cache)) delete cache[k];
+    el.resetImage.disabled = !S.work;
   }
 
   el.fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
@@ -88,6 +105,97 @@
     loadFile(e.dataTransfer.files[0]);
   });
   el.canvas.classList.add('empty');
+
+  // ---------- image tools ----------
+
+  function editImage(op) {
+    S.work = L3D.raster.editCanvas(S.work || L3D.raster.toCanvas(S.base), op);
+    useImage({ img: S.work, w: S.work.width, h: S.work.height, isSvg: false });
+    drawImage();
+    schedule(0);
+  }
+
+  function trimMargins() {
+    const o = S.orig, b = L3D.labels.trimBox(o.data.data, o.w, o.h);
+    if (!b) { flashHint('There are no empty margins to trim.'); return; }
+    editImage({ type: 'crop', u0: b.x / o.w, v0: b.y / o.h, u1: (b.x + b.w) / o.w, v1: (b.y + b.h) / o.h });
+  }
+
+  function resetImage() {
+    S.work = null;
+    useImage(S.base);
+    drawImage();
+    schedule(0);
+  }
+
+  function startCrop() {
+    setView('original');
+    S.cropping = true;
+    el.loupe.hidden = true;
+    el.canvas.classList.add('cropping');
+    el.cropBtn.classList.add('primary');
+    el.pickHint.textContent = 'Drag a box on the image to crop it. Press Esc or Crop to cancel.';
+  }
+
+  function endCrop() {
+    S.cropping = false;
+    S.cropBox = null;
+    el.canvas.classList.remove('cropping');
+    el.cropBtn.classList.remove('primary');
+    el.pickHint.textContent = PICK_HINT;
+    drawImage();
+  }
+
+  el.imageTools.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b || !S.base) return;
+    const tool = b.dataset.tool;
+    if (tool === 'crop') { if (S.cropping) endCrop(); else startCrop(); return; }
+    if (S.cropping) endCrop();
+    if (tool === 'rotate-left') editImage({ type: 'rotate', dir: -1 });
+    else if (tool === 'rotate-right') editImage({ type: 'rotate', dir: 1 });
+    else if (tool === 'flip-h') editImage({ type: 'flip', axis: 'h' });
+    else if (tool === 'flip-v') editImage({ type: 'flip', axis: 'v' });
+    else if (tool === 'trim') trimMargins();
+    else resetImage();
+  });
+
+  // Pointer position on the canvas, kept inside the image.
+  function cropPoint(e) {
+    const rect = el.canvas.getBoundingClientRect(), r = fitRect();
+    return {
+      x: Math.max(r.x, Math.min(r.x + r.w, e.clientX - rect.left)),
+      y: Math.max(r.y, Math.min(r.y + r.h, e.clientY - rect.top)),
+    };
+  }
+
+  el.canvas.addEventListener('pointerdown', e => {
+    S.cropClick = false; // not every browser sends the click after a drag ends off the canvas
+    if (!S.cropping) return;
+    e.preventDefault();
+    el.canvas.setPointerCapture(e.pointerId);
+    const p = cropPoint(e);
+    S.cropBox = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+  });
+  el.canvas.addEventListener('pointermove', e => {
+    if (!S.cropBox) return;
+    const p = cropPoint(e);
+    S.cropBox.x1 = p.x;
+    S.cropBox.y1 = p.y;
+    drawImage();
+  });
+  el.canvas.addEventListener('pointerup', () => {
+    if (!S.cropBox) return;
+    const b = S.cropBox, r = fitRect();
+    const x0 = Math.min(b.x0, b.x1), x1 = Math.max(b.x0, b.x1), y0 = Math.min(b.y0, b.y1), y1 = Math.max(b.y0, b.y1);
+    S.cropBox = null;
+    S.cropClick = true;
+    if (x1 - x0 < MIN_CROP || y1 - y0 < MIN_CROP) { drawImage(); return; } // keep waiting for a drag
+    endCrop();
+    editImage({ type: 'crop', u0: (x0 - r.x) / r.w, v0: (y0 - r.y) / r.h, u1: (x1 - r.x) / r.w, v1: (y1 - r.y) / r.h });
+  });
+  el.canvas.addEventListener('pointercancel', () => { S.cropBox = null; drawImage(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.cropping) endCrop(); });
 
   // ---------- image panel ----------
 
@@ -122,7 +230,22 @@
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(S.orig.canvas, r.x, r.y, r.w, r.h);
+      if (S.cropBox) drawCropBox(ctx, r);
     }
+  }
+
+  // Dims everything outside the box being dragged.
+  function drawCropBox(ctx, r) {
+    const b = S.cropBox;
+    const x = Math.min(b.x0, b.x1), y = Math.min(b.y0, b.y1), w = Math.abs(b.x1 - b.x0), h = Math.abs(b.y1 - b.y0);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.beginPath();
+    ctx.rect(r.x, r.y, r.w, r.h);
+    ctx.rect(x, y, w, h);
+    ctx.fill('evenodd');
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, h);
   }
 
   // The final grid drawn in filament colours, seen from the front: exactly what will be
@@ -182,6 +305,7 @@
   }
 
   el.canvas.addEventListener('click', e => {
+    if (S.cropping || S.cropClick) { S.cropClick = false; return; }
     const p = imagePixel(e);
     if (!p) return;
     const rgb = L3D.raster.sampleColor(S.orig, p.x, p.y);
@@ -207,7 +331,7 @@
   });
 
   el.canvas.addEventListener('mousemove', e => {
-    const p = imagePixel(e);
+    const p = S.cropping ? null : imagePixel(e);
     if (!p) { el.loupe.hidden = true; return; }
     drawLoupe(p);
     const rect = el.stage.getBoundingClientRect();
@@ -490,7 +614,11 @@
 
   function gridSize() {
     const s = S.settings;
-    let gw = Math.max(2, Math.round(s.widthMm / s.detail));
+    // Width is the finished width, so an oval's image is smaller to leave room for the oval.
+    const hasFill = S.palette.some(c => c.id === s.outline.colorId && !c.none);
+    const growth = hasFill ? L3D.model.outlineGrowth(s.outline.shape) : 1;
+    const imageWidth = s.widthMm / growth;
+    let gw = Math.max(2, Math.round(imageWidth / s.detail));
     let gh = Math.max(2, Math.round(gw * S.src.h / S.src.w));
     let capped = false;
     if (Math.max(gw, gh) > MAX_GRID) {
@@ -499,14 +627,14 @@
       gh = Math.max(2, Math.round(gh * k));
       capped = true;
     }
-    return { gw, gh, scale: s.widthMm / gw, capped };
+    return { gw, gh, scale: imageWidth / gw, capped, growth };
   }
 
   function rebuild() {
     if (!S.src) return;
     const s = S.settings;
-    const { gw, gh, scale, capped } = gridSize();
-    el.heightMm.textContent = (gh * scale).toFixed(1) + ' mm';
+    const { gw, gh, scale, capped, growth } = gridSize();
+    el.heightMm.textContent = (gh * scale * growth).toFixed(1) + ' mm';
 
     const gridKey = gw + 'x' + gh;
     if (cache.gridKey !== gridKey) {
@@ -551,7 +679,7 @@
     if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
       warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
     }
-    const traceKey = labelsKey + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
+    const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + loopKey;
     if (cache.traceKey !== traceKey) {
       let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
       if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);

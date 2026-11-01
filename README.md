@@ -71,6 +71,15 @@ It only routes containers that opt in with `traefik.enable=true`.
 
 1. **Image.** Drop an image onto the panel or choose one with the button. PNG, JPG, WebP and SVG
    all work. `samples/sample-logo.svg` is there to try.
+   Under the image are tools to adjust it, which keep any colors you've picked:
+   - **Rotate** a quarter turn left or right, and **Flip** left to right or top to bottom.
+   - **Crop**: press it, then drag a box on the image. Press Esc or **Crop** again to cancel.
+   - **Trim margins** removes empty space around the image. That's transparent margins, or
+     on an image with no transparency, margins in the color at least 3 corners share, such as
+     a white JPG background.
+   - **Reset image** undoes all of these.
+
+   **Width** applies to the edited image, so trimming or cropping makes what's left bigger.
 2. **Colors.** Click the image once on each color you want in the model.
    - Every pixel is assigned to the closest picked color, judged the way the eye sees color.
    - Switch to **Mapped** to see exactly what will be printed, seen from the front, including
@@ -103,8 +112,8 @@ It only routes containers that opt in with `traefik.enable=true`.
      choose. The fill is a normal color part at that color's height, and a base plate can
      still be added underneath. Use it for badges, coasters and keychains.
      - **Round / oval:** the smallest oval that contains the whole image, or a circle if the
-       image is square. It passes through the image's corners, so it is about 1.41 × the
-       image's width and height.
+       image is square. **Width** is the width of the whole oval. It passes through the
+       image's corners, so the image inside it is about 71% of that width.
      - **Rounded corners:** the image's own rectangle with its corners rounded to the
        **Corner radius** you set. The size doesn't change; anything in the corners, logo
        included, is cut away. A radius of 0 gives sharp corners. The largest radius is half

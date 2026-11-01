@@ -452,6 +452,57 @@
       results.push(res);
     }
 
+    // Trimming empty margins.
+    {
+      const res = { name: 'trim margins', errors: [] };
+      const image = (W, H, f) => {
+        const px = new Uint8ClampedArray(W * H * 4);
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) px.set(f(x, y), (y * W + x) * 4);
+        }
+        return { px, W, H };
+      };
+      const WHITE = [255, 255, 255, 255], RED = [200, 20, 30, 255], CLEAR = [0, 0, 0, 0];
+      const box = (x0, y0, x1, y1) => (x, y) => x >= x0 && x < x1 && y >= y0 && y < y1;
+      const expectBox = (name, im, want) => {
+        const got = L3D.labels.trimBox(im.px, im.W, im.H);
+        if (JSON.stringify(got) !== JSON.stringify(want)) res.errors.push(`${name}: ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+      };
+      const logo = box(5, 4, 15, 9);
+      expectBox('transparent margins', image(20, 12, (x, y) => (logo(x, y) ? RED : CLEAR)), { x: 5, y: 4, w: 10, h: 5 });
+      expectBox('white background', image(20, 12, (x, y) => (logo(x, y) ? RED : WHITE)), { x: 5, y: 4, w: 10, h: 5 });
+      const noise = (x, y) => [250 + (x * 7 + y * 3) % 6, 250 + (x * 3 + y * 5) % 6, 250 + (x + y) % 6, 255];
+      expectBox('noisy background', image(20, 12, (x, y) => (logo(x, y) ? RED : noise(x, y))), { x: 5, y: 4, w: 10, h: 5 });
+      expectBox('logo touching the top edge', image(20, 12, (x, y) => (box(5, 0, 15, 9)(x, y) ? RED : WHITE)), { x: 5, y: 0, w: 10, h: 9 });
+      expectBox('three white corners, one covered', image(20, 12, (x, y) => (box(10, 6, 20, 12)(x, y) ? RED : WHITE)), { x: 10, y: 6, w: 10, h: 6 });
+      expectBox('white logo on red', image(20, 12, (x, y) => (logo(x, y) ? WHITE : RED)), { x: 5, y: 4, w: 10, h: 5 });
+      expectBox('no margins', image(20, 12, (x, y) => (x < 10 ? RED : [20, 40, 160, 255])), null);
+      expectBox('solid image', image(20, 12, () => RED), null);
+      expectBox('fully transparent', image(20, 12, () => CLEAR), null);
+      expectBox('every corner a different color', image(4, 4, (x, y) => [x * 80, y * 80, 100, 255]), null);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
+    // Width means the finished width: a built oval comes out at the width asked for.
+    {
+      const res = { name: 'oval width', errors: [] };
+      for (const [width, aspect] of [[80, 0.75], [60, 1], [100, 0.5]]) {
+        const detail = 0.25, growth = L3D.model.outlineGrowth('oval');
+        const imageWidth = width / growth;
+        const gw = Math.round(imageWidth / detail), gh = Math.round(gw * aspect), scale = imageWidth / gw;
+        const o = L3D.model.addOutline(new Int16Array(gw * gh), gw, gh, 0, 'oval', 0);
+        const g = L3D.contours.trace(o.labels, o.W, o.H, { smooth: true });
+        const box = L3D.mesh.bounds([L3D.mesh.buildSolid(g, [2], 0, scale)]);
+        const w = box.max[0] - box.min[0], h = box.max[1] - box.min[1];
+        if (Math.abs(w - width) > 0.5) res.errors.push(`asked for ${width} mm wide, got ${w.toFixed(2)}`);
+        if (Math.abs(h - gh * scale * growth) > 0.5) res.errors.push(`height readout ${(gh * scale * growth).toFixed(2)}, built ${h.toFixed(2)}`);
+      }
+      if (L3D.model.outlineGrowth('rounded') !== 1 || L3D.model.outlineGrowth('none') !== 1) res.errors.push('only the oval should grow');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 
