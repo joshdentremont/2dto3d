@@ -122,6 +122,11 @@ It only routes containers that opt in with `traefik.enable=true`.
    - **Outline** gives the model a shape and fills the empty area inside it with a color you
      choose. The fill is a normal color part at that color's height, and a base plate can
      still be added underneath. Use it for badges, coasters and keychains.
+     - **Make square** centres the image on a square as wide as its longer side, and fills
+       everything empty, including gaps inside the image, with the **Fill color**. It works
+       with any shape: with None the model is a square, Round / oval then gives a circle, and
+       Rounded corners rounds the corners of the square. **Width** is the size of the square,
+       so a tall image's height fits that size.
      - **Round / oval:** the smallest oval that contains the whole image, or a circle if the
        image is square. **Width** is the width of the whole oval. It passes through the
        image's corners, so the image inside it is about 71% of that width.

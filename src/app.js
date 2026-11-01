@@ -18,7 +18,7 @@
     thickness: $('thickness'), layerHeight: $('layerHeight'), widthMm: $('widthMm'), heightMm: $('heightMm'),
     detail: $('detail'), speck: $('speck'), smooth: $('smooth'), bedWidth: $('bedWidth'), bedDepth: $('bedDepth'),
     baseType: $('baseType'), baseThickness: $('baseThickness'), baseColor: $('baseColor'),
-    outlineShape: $('outlineShape'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
+    outlineShape: $('outlineShape'), outlineSquare: $('outlineSquare'), cornerRadius: $('cornerRadius'), outlineColor: $('outlineColor'),
     borderOn: $('borderOn'), borderWidth: $('borderWidth'), borderHeight: $('borderHeight'), borderColor: $('borderColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
@@ -54,7 +54,7 @@
       mode: 'flat', thickness: 2, layerHeight: 0.2, widthMm: 80, detail: 0.15, speckMm2: 0.3, smooth: true, bedWidth: 256, bedDepth: 256,
       base: { type: 'none', thickness: 1, colorId: null },
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
-      outline: { shape: 'none', radius: 5, colorId: null },
+      outline: { shape: 'none', square: false, radius: 5, colorId: null },
       border: { on: false, width: 2, height: 3, colorId: null },
       frame: {
         on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
@@ -511,6 +511,7 @@
     s.bedDepth = Math.max(50, +el.bedDepth.value || 256);
     s.base.type = el.baseType.value;
     s.outline.shape = el.outlineShape.value;
+    s.outline.square = el.outlineSquare.checked;
     s.outline.radius = Math.max(0, +el.cornerRadius.value || 0);
     s.outline.colorId = +el.outlineColor.value || s.outline.colorId;
     s.border.on = el.borderOn.checked;
@@ -556,7 +557,8 @@
     el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-frame-stand]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.stand); });
-    document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
+    const outline = [S.settings.outline.shape, S.settings.outline.square ? 'square' : ''];
+    document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').some(v => outline.includes(v)); });
     el.singleOn.hidden = mode !== 'layered';
     el.singleOff.hidden = mode === 'layered';
   }
@@ -569,7 +571,7 @@
     schedule(0);
   });
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
-    el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
+    el.baseType, el.baseThickness, el.outlineShape, el.outlineSquare, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {
@@ -778,24 +780,17 @@
     const growth = hasFill ? L3D.model.outlineGrowth(s.outline.shape) : 1;
     const hasBorder = s.border.on && S.palette.some(c => c.id === s.border.colorId && !c.none);
     const border = hasBorder ? Math.min(s.border.width, s.widthMm / 4) : 0;
+    const square = s.outline.square && hasFill;
     const imageWidth = (s.widthMm - 2 * border) / growth;
-    let gw = Math.max(2, Math.round(imageWidth / s.detail));
-    let gh = Math.max(2, Math.round(gw * S.src.h / S.src.w));
-    let capped = false;
-    if (Math.max(gw, gh) > MAX_GRID) {
-      const k = MAX_GRID / Math.max(gw, gh);
-      gw = Math.max(2, Math.round(gw * k));
-      gh = Math.max(2, Math.round(gh * k));
-      capped = true;
-    }
-    return { gw, gh, scale: imageWidth / gw, capped, growth, border };
+    const { gw, gh, scale, capped } = L3D.model.gridSize(imageWidth, s.detail, S.src.w, S.src.h, MAX_GRID, square);
+    return { gw, gh, scale, capped, growth, border, printHeight: (square ? Math.max(gw, gh) : gh) * scale * growth + 2 * border };
   }
 
   // What the pipeline needs for the current settings. Resampling needs a canvas, so it happens
   // here, and the pixels are only sent when they've changed.
   function makeJob() {
-    const { gw, gh, scale, capped, growth, border } = gridSize();
-    el.heightMm.textContent = (gh * scale * growth + 2 * border).toFixed(1) + ' mm';
+    const { gw, gh, scale, capped, border, printHeight } = gridSize();
+    el.heightMm.textContent = printHeight.toFixed(1) + ' mm';
     const gridKey = gw + 'x' + gh;
     if (cache.gridKey !== gridKey) {
       cache.grid = { gw, gh, data: L3D.raster.resample(S.src, gw, gh) };

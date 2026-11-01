@@ -100,6 +100,7 @@
       </div>
 
       <h3>Outline</h3>
+      <label class="field check option-line"><input type="checkbox" id="outlineSquare"> Make square</label>
       <div class="fields">
         <label class="field">Shape
           <select id="outlineShape">
@@ -111,10 +112,11 @@
         <label class="field" data-outline="rounded">Corner radius
           <span class="unit"><input type="number" id="cornerRadius" min="0" step="0.5" value="5"> mm</span>
         </label>
-        <label class="field" data-outline="oval rounded">Fill color
+        <label class="field" data-outline="oval rounded square">Fill color
           <select id="outlineColor"></select>
         </label>
       </div>
+      <p class="muted small" data-outline="square" hidden>The image is centred on a square as wide as its longer side, and everything empty is filled with this color, at the same height as that color. Any Shape you pick then applies to the square. Width sets the size of the finished square.</p>
       <p class="muted small" data-outline="oval" hidden>The area around the logo is filled with this color, out to the smallest oval that contains the whole image (a circle for a square image). It is the same height as that color. Width sets the width of the whole oval.</p>
       <p class="muted small" data-outline="rounded" hidden>The image's corners are rounded off to this radius, cutting away anything in them. Empty areas inside are filled with this color, at the same height as that color.</p>
 

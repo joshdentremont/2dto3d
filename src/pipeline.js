@@ -47,9 +47,11 @@
       const loopKey = loopOn ? [s.loop.side, s.loop.outer, s.loop.hole, loopIdx].join() : 'off';
       const outlineIdx = palette.findIndex(c => c.id === s.outline.colorId && !c.none);
       const outlineOn = s.outline.shape !== 'none' && outlineIdx >= 0;
-      const maxRadius = L3D.model.maxCornerRadius(gw, gh) * scale;
+      const squareOn = !!s.outline.square && outlineIdx >= 0;
+      const side = Math.max(gw, gh);
+      const maxRadius = (squareOn ? side / 2 : L3D.model.maxCornerRadius(gw, gh)) * scale;
       const radius = Math.min(s.outline.radius, maxRadius);
-      const outlineKey = outlineOn ? [s.outline.shape, outlineIdx, s.outline.shape === 'rounded' ? radius : ''].join() : '';
+      const outlineKey = outlineOn || squareOn ? [s.outline.shape, outlineIdx, s.outline.shape === 'rounded' ? radius : '', squareOn].join() : '';
       if (outlineOn && s.outline.shape === 'rounded' && s.outline.radius > maxRadius) {
         warnings.push(`The corner radius was limited to ${maxRadius.toFixed(1)} mm, where the short sides become fully rounded.`);
       }
@@ -67,7 +69,11 @@
       const traceKey = labelsKey + '|' + scale + '|' + s.smooth + '|' + (s.base.type === 'rect') + '|' + outlineKey + '|' + borderKey + '|' + loopKey;
       if (cache.traceKey !== traceKey) {
         let grid = { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 };
-        if (outlineKey) grid = L3D.model.addOutline(grid.labels, gw, gh, outlineIdx, s.outline.shape, radius / scale);
+        if (squareOn) grid = L3D.model.addSquare(grid.labels, gw, gh, outlineIdx);
+        if (outlineOn) {
+          const o = L3D.model.addOutline(grid.labels, grid.W, grid.H, outlineIdx, s.outline.shape, radius / scale);
+          grid = { labels: o.labels, W: o.W, H: o.H, ox: grid.ox + o.ox, oy: grid.oy + o.oy };
+        }
         let { labels, W, H } = L3D.model.traceLabels(grid.labels, grid.W, grid.H, colors.length, s);
         let { ox, oy } = grid;
         if (borderOn) {

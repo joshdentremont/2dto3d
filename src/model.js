@@ -69,6 +69,38 @@
     return { labels: out, W: NW, H: NH, ox, oy };
   }
 
+  // Print grid size for an image: { gw, gh, scale (mm per pixel), capped }. width is the width in
+  // mm it should come out at, or with `square`, the side of the square it's centred on, which
+  // is set by its longer side. capped says the detail was reduced to keep within maxGrid pixels.
+  function gridSize(width, detail, imageW, imageH, maxGrid, square) {
+    const upright = square && imageH > imageW; // height, not width, fills the given size
+    let a = Math.max(2, Math.round(width / detail));
+    let b = Math.max(2, Math.round(upright ? a * imageW / imageH : a * imageH / imageW));
+    let capped = false;
+    if (Math.max(a, b) > maxGrid) {
+      const k = maxGrid / Math.max(a, b);
+      a = Math.max(2, Math.round(a * k));
+      b = Math.max(2, Math.round(b * k));
+      capped = true;
+    }
+    return { gw: upright ? b : a, gh: upright ? a : b, scale: width / a, capped };
+  }
+
+  // The image centred on a square as wide as its longer side, with `fill` (a palette index)
+  // wherever it's empty. Returns { labels, W, H, ox, oy }: (ox, oy) is where the image starts.
+  function addSquare(labels, W, H, fill) {
+    const side = Math.max(W, H);
+    const ox = Math.floor((side - W) / 2), oy = Math.floor((side - H) / 2);
+    const out = new Int16Array(side * side).fill(fill);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const l = labels[y * W + x];
+        if (l >= 0) out[(y + oy) * side + x + ox] = l;
+      }
+    }
+    return { labels: out, W: side, H: side, ox, oy };
+  }
+
   // A band widthPx wide around the outside of the shape, labelled `label`. Openings enclosed by
   // the shape are left alone. Returns { labels, W, H, ox, oy }, enlarged to fit the band, with
   // (ox, oy) being where the old grid now starts.
@@ -184,5 +216,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, addOutline, addBorder, outlineGrowth, maxCornerRadius, fitsBed, build };
+  L3D.model = { traceLabels, gridSize, addSquare, addOutline, addBorder, outlineGrowth, maxCornerRadius, fitsBed, build };
 })(globalThis.L3D = globalThis.L3D || {});

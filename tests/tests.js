@@ -749,6 +749,69 @@
       results.push(res);
     }
 
+    // Making the model square.
+    {
+      const res = { name: 'make square', errors: [] };
+      const M = L3D.model;
+      // Sizing. An ordinary image keeps its width; a tall one being squared fits its height.
+      const size = (...a) => { const g = M.gridSize(...a); return [g.gw, g.gh, g.scale, g.capped]; };
+      const same = (a, b) => a.length === b.length && a.every((v, i) => close(v, b[i]));
+      if (!same(size(80, 0.5, 200, 100, 1600, false), [160, 80, 0.5, false])) res.errors.push(`wide ${size(80, 0.5, 200, 100, 1600, false)}`);
+      if (!same(size(80, 0.5, 100, 200, 1600, false), [160, 320, 0.5, false])) res.errors.push(`tall ${size(80, 0.5, 100, 200, 1600, false)}`);
+      if (!same(size(80, 0.5, 200, 100, 1600, true), [160, 80, 0.5, false])) res.errors.push(`wide square ${size(80, 0.5, 200, 100, 1600, true)}`);
+      if (!same(size(80, 0.5, 100, 200, 1600, true), [80, 160, 0.5, false])) res.errors.push(`tall square ${size(80, 0.5, 100, 200, 1600, true)}`);
+      if (!same(size(80, 0.01, 100, 200, 1600, true), [800, 1600, 0.05, true])) res.errors.push(`capped square ${size(80, 0.01, 100, 200, 1600, true)}`);
+
+      // A 4 x 2 image, with a gap in it, on a 4 x 4 square, filled with color 3.
+      const flat = M.addSquare(Int16Array.from([0, -1, 1, 1, 0, 0, 1, 1]), 4, 2, 3);
+      if (flat.W !== 4 || flat.H !== 4 || flat.ox !== 0 || flat.oy !== 1) res.errors.push(`wide image: ${flat.W} x ${flat.H} at ${flat.ox}, ${flat.oy}`);
+      if (Array.from(flat.labels).join() !== '3,3,3,3,0,3,1,1,0,0,1,1,3,3,3,3') res.errors.push(`wide image labels ${flat.labels}`);
+      const tall = M.addSquare(Int16Array.from([0, 1, 0, 1, 0, 1]), 2, 3, 3);
+      if (tall.W !== 3 || tall.ox !== 0 || tall.oy !== 0 || tall.labels[2] !== 3) res.errors.push(`tall image: ${tall.W} at ${tall.ox}`);
+
+      // Through the pipeline, with every shape: a 40 x 20 image, half of it empty.
+      const gw = 40, gh = 20, image = new Uint8ClampedArray(gw * gh * 4);
+      for (let i = 0; i < gw * gh; i++) if (i % gw < 20) image.set([255, 0, 0, 255], i * 4);
+      const palette = [{ id: 1, rgb: [255, 0, 0], filament: '#FF0000', name: 'Red', none: false, height: 1 },
+        { id: 2, rgb: [0, 0, 255], filament: '#0000FF', name: 'Blue', none: false, height: 2 }];
+      const settings = (shape, square) => ({
+        mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: true, speckMm2: 0, bedWidth: 256, bedDepth: 256,
+        base: { type: 'none', thickness: 1, colorId: null }, loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+        outline: { shape, square, radius: 5, colorId: 2 }, border: { on: false, width: 2, height: 3, colorId: null }, frame: { on: false },
+      });
+      const build = (shape, square, colorId) => {
+        const s = settings(shape, square);
+        if (colorId !== undefined) s.outline.colorId = colorId;
+        return L3D.pipeline.create().run({ gw, gh, scale: 1, capped: false, borderMm: 0, palette, settings: s, image });
+      };
+      const sizeOf = r => { const b = L3D.mesh.bounds(r.model.parts.map(p => p.mesh)); return [b.max[0] - b.min[0], b.max[1] - b.min[1]]; };
+      const check = (name, r, w, h, parts, tol) => {
+        const got = sizeOf(r);
+        if (Math.abs(got[0] - w) > (tol || 0.51) || Math.abs(got[1] - h) > (tol || 0.51)) res.errors.push(`${name}: ${got}`);
+        if (r.openEdges !== 0) res.errors.push(`${name}: ${r.openEdges} open edges`);
+        if (r.model.parts.length !== parts) res.errors.push(`${name}: ${r.model.parts.length} parts`);
+      };
+      check('no square', build('none', false), 20, 20, 1);
+      check('square', build('none', true), 40, 40, 2);
+      // Smoothing a curve trims a little at this coarse 1 mm per pixel.
+      check('square, oval', build('oval', true), 56.6, 56.6, 2, 1);
+      check('square, rounded', build('rounded', true), 40, 40, 2);
+      // The image's position is kept, for picking colors from the Mapped view.
+      const placed = build('oval', true);
+      // The 40 pixel square sits 9 pixels into the 59 pixel oval, and the image 10 down in that.
+      if (placed.shown.ox !== 9 || placed.shown.oy !== 19) res.errors.push(`oval's image at ${placed.shown.ox}, ${placed.shown.oy}`);
+      if (build('none', true).shown.oy !== 10) res.errors.push(`square's oy ${build('none', true).shown.oy}`);
+      // The corner radius can reach half of the square, not half of the shorter side of the image.
+      const big = settings('rounded', true);
+      big.outline.radius = 15;
+      const rounded = L3D.pipeline.create().run({ gw, gh, scale: 1, capped: false, borderMm: 0, palette, settings: big, image });
+      if (rounded.warnings.length) res.errors.push(`radius 15 on a 40 mm square: ${rounded.warnings}`);
+      // No color to fill with: stays as it was.
+      check('square with no fill', build('none', true, 99), 20, 20, 1);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     // Border around a shape, ignoring openings enclosed by it.
     {
       const res = { name: 'border band', errors: [] };
