@@ -87,6 +87,10 @@ It only routes containers that opt in with `traefik.enable=true`.
      look. Heights snap to the layer height. This is also what makes single-extruder color
      printing possible (see Export).
 
+   The settings in this step are remembered in your browser between visits, apart from the
+   color dropdowns. **Reset settings** puts them back to the defaults. The image and its
+   colors aren't saved.
+
    Other settings:
    - **Width** sets the size of the model.
    - **Detail** is the size of one image pixel in the model.

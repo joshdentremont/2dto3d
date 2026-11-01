@@ -26,7 +26,7 @@
     frameHowTo: $('frameHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
-    swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
+    resetSettings: $('resetSettings'), swapsBox: $('swapsBox'), swaps: $('swaps'), perColor: $('perColor'),
     singleOn: $('singleOn'), singleOff: $('singleOff'),
   };
 
@@ -396,19 +396,71 @@
     readSettings();
     applyVisibility();
     renderPalette();
+    saveSettings();
     schedule(0);
   });
-  for (const input of [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
+  const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth,
     el.baseType, el.baseThickness, el.outlineShape, el.cornerRadius, el.outlineColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
-    el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius]) {
+    el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius];
+  for (const input of settingInputs) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
       readSettings();
       applyVisibility();
       if (input === el.layerHeight) renderPalette();
+      saveSettings();
       schedule(300);
     });
   }
+
+  // ---------- remembered settings ----------
+
+  // Settings are kept in this browser between visits. The colour dropdowns are left out:
+  // their choices belong to the current image's colours, which aren't saved.
+  const SETTINGS_KEY = '2d-to-3d-settings';
+  const colorInputs = [el.baseColor, el.loopColor, el.outlineColor];
+  const remembered = [el.perColor].concat(settingInputs.filter(input => !colorInputs.includes(input)));
+
+  function defaultOption(select) {
+    return Array.from(select.options).find(o => o.defaultSelected) || select.options[0];
+  }
+
+  // Storage can be unavailable (a private window, for example): settings just aren't kept.
+  function saveSettings() {
+    const values = {};
+    for (const input of remembered) values[input.id] = input.type === 'checkbox' ? input.checked : input.value;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(values)); } catch (err) { /* not kept */ }
+  }
+
+  function restoreSettings() {
+    let values = null;
+    try { values = JSON.parse(localStorage.getItem(SETTINGS_KEY)); } catch (err) { /* nothing to restore */ }
+    if (!values) return;
+    for (const input of remembered) {
+      if (!(input.id in values)) continue;
+      if (input.type === 'checkbox') {
+        input.checked = !!values[input.id];
+      } else {
+        input.value = values[input.id];
+        // A choice that's no longer offered goes back to the default.
+        if (input.tagName === 'SELECT' && input.selectedIndex < 0) input.value = defaultOption(input).value;
+      }
+    }
+  }
+
+  function resetSettings() {
+    try { localStorage.removeItem(SETTINGS_KEY); } catch (err) { /* nothing to remove */ }
+    for (const input of remembered) {
+      if (input.type === 'checkbox') input.checked = input.defaultChecked;
+      else if (input.tagName === 'SELECT') input.value = defaultOption(input).value;
+      else input.value = input.defaultValue;
+    }
+    readSettings();
+    applyVisibility();
+    renderPalette();
+    schedule(0);
+  }
+  el.resetSettings.addEventListener('click', resetSettings);
 
   // ---------- build pipeline ----------
 
@@ -658,6 +710,7 @@
     L3D.exporters.download(L3D.exporters.stl([S.model.body]), S.name + '.stl', 'model/stl');
   });
 
+  restoreSettings();
   readSettings();
   applyVisibility();
 })(globalThis.L3D = globalThis.L3D || {});
