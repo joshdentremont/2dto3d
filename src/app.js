@@ -22,7 +22,7 @@
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
     framePocketDepth: $('framePocketDepth'), frameOuterRadius: $('frameOuterRadius'), frameInnerRadius: $('frameInnerRadius'),
-    viewerHome: $('viewerHome'),
+    viewerHome: $('viewerHome'), frameView: $('frameView'),
     frameHowTo: $('frameHowTo'),
     viewer: $('viewer'), viewerMsg: $('viewerMsg'), busy: $('busy'), stats: $('stats'),
     warnings: $('warnings'), export3mf: $('export3mf'), exportZip: $('exportZip'), exportStl: $('exportStl'),
@@ -37,6 +37,7 @@
     palette: [],        // [{ id, rgb, filament, name, none, height }]
     nextId: 1,
     view: 'original',
+    frameView: 'apart', // or 'assembled'
     hover: -1,          // palette index highlighted from the list
     model: null,
     settings: {
@@ -385,6 +386,7 @@
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
+    el.frameView.hidden = !S.settings.frame.on;
     el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').includes(S.settings.outline.shape); });
@@ -583,7 +585,6 @@
 
     // Frame: a separate part shaped around the print.
     S.frame = null;
-    const shown = model.parts.slice();
     if (s.frame.on && model.parts.length) {
       const printBox = L3D.mesh.bounds([model.body]);
       const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
@@ -627,15 +628,28 @@
       el.frameHowTo.textContent = 'Print it as exported, face down, in any color. Then ' + (cache.frameBumps
         ? 'push your print into the back of the frame, face first, until it snaps past the bumps.'
         : 'put your print into the back of the frame, face first, and glue or tape it in place.');
-      S.frame = { mesh: cache.frameMesh };
-      // Show it next to the print, 10 mm to the right.
-      const frameBox = L3D.mesh.bounds([cache.frameMesh]);
-      shown.push({ name: 'Frame', color: f.color, mesh: cache.frameMesh, offset: [printBox.max[0] - frameBox.min[0] + 10, 0, 0] });
+      S.frame = { mesh: cache.frameMesh, depth: f.depth, lipDepth, printDepth };
     }
 
     el.viewerMsg.hidden = model.parts.length > 0;
-    viewer.setParts(shown);
+    showParts();
     showOutput(warnings);
+  }
+
+  // Puts the model in the 3D view. A frame goes next to the print, 10 mm to the right, as it
+  // prints; or around it, as it will look finished.
+  function showParts() {
+    const parts = S.model.parts, frame = S.frame;
+    if (!frame) { viewer.setParts(parts); return; }
+    const color = S.settings.frame.color;
+    if (S.frameView === 'assembled') {
+      const at = L3D.frame.assembled(frame.depth, frame.lipDepth, frame.printDepth);
+      viewer.setParts(parts.map(p => Object.assign({}, p, { offset: [0, 0, at.printZ] })).concat(
+        [{ name: 'Frame', color, mesh: frame.mesh, turned: true, offset: [0, 0, at.frameZ] }]));
+      return;
+    }
+    const printBox = L3D.mesh.bounds([S.model.body]), frameBox = L3D.mesh.bounds([frame.mesh]);
+    viewer.setParts(parts.concat([{ name: 'Frame', color, mesh: frame.mesh, offset: [printBox.max[0] - frameBox.min[0] + 10, 0, 0] }]));
   }
 
   function showOutput(warnings) {
@@ -690,6 +704,16 @@
   }
 
   el.viewerHome.addEventListener('click', viewer.home);
+  el.frameView.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    S.frameView = b.dataset.frameView;
+    for (const other of el.frameView.querySelectorAll('button')) other.classList.toggle('on', other === b);
+    if (S.model && S.frame) {
+      showParts();
+      viewer.home();
+    }
+  });
 
   // ---------- exports ----------
 

@@ -341,5 +341,14 @@
     return { mesh, pocket, bumps };
   }
 
-  L3D.frame = { distanceSq, frameGrid, buildFrame, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth };
+  // Where the parts go to show the print sitting in the frame, front upwards. The frame is
+  // turned half way around the y axis, which puts its front on top and undoes its mirroring,
+  // then raised by frameZ. The print is raised by printZ, so its face meets the back of the
+  // lip. If the print is deeper than the recess, everything is lifted to stay above the bed.
+  function assembled(frameDepth, lipDepth, printDepth) {
+    const lift = Math.max(0, printDepth - lipDepth);
+    return { frameZ: frameDepth + lift, printZ: lipDepth - printDepth + lift };
+  }
+
+  L3D.frame = { assembled, distanceSq, frameGrid, buildFrame, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth };
 })(globalThis.L3D = globalThis.L3D || {});

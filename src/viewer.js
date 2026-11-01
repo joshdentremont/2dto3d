@@ -34,7 +34,8 @@
       scene.add(bed);
     }
 
-    // parts: [{ color: '#RRGGBB', mesh: { positions, indices }, offset: [x, y, z] (optional) }]
+    // parts: [{ color: '#RRGGBB', mesh: { positions, indices }, offset: [x, y, z] (optional),
+    // turned: true to turn the part half way around the y axis first (optional) }]
     function setParts(parts) {
       for (const child of group.children.slice()) {
         group.remove(child);
@@ -51,6 +52,7 @@
           polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
         });
         const mesh = new THREE.Mesh(geo, mat);
+        if (part.turned) mesh.rotation.y = Math.PI;
         if (part.offset) mesh.position.set(part.offset[0], part.offset[1], part.offset[2]);
         group.add(mesh);
       }

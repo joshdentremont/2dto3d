@@ -166,6 +166,7 @@ input[type=number] { width: 76px; }
   background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
 }
 .viewer-home:hover { border-color: var(--accent); }
+.viewer-seg { position: absolute; top: 10px; left: 50px; z-index: 1; background: var(--panel); }
 .viewer-msg { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); padding: 16px; text-align: center; pointer-events: none; }
 .busy {
   position: absolute; top: 10px; right: 10px; padding: 4px 10px; border-radius: 999px;

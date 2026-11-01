@@ -149,9 +149,11 @@ It only routes containers that opt in with `traefik.enable=true`.
      you what lip depth would leave room.
 
      The recess outline is mirrored left to right because the print goes in face down. Holes
-     inside the print, such as the inside of letters, show through the opening. The frame
-     appears next to your print in the preview, seen from the back as it prints, with its top
-     edge at the top.
+     inside the print, such as the inside of letters, show through the opening.
+
+     In the preview, the frame appears next to your print, seen from the back as it prints,
+     with its top edge at the top. Switch to **Assembled** at the top of the viewer to see the
+     print sitting in the frame, as it will look finished.
    - **Keychain loop** (optional) adds a ring with a hole for a key ring, centred on the top,
      bottom, left or right of the logo, in a color you choose. You set the outer and hole
      diameters. A short tab joins the ring to the logo across small gaps. If nothing is within

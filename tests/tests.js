@@ -418,6 +418,40 @@
       results.push(res);
     }
 
+    // Assembled view: turning the frame and raising both parts seats the print against the lip.
+    {
+      const res = { name: 'assembled frame preview', errors: [] };
+      const g0 = grid(['aaa.......', 'aaa.......', 'aaa.......', 'aaaaaaaaaa', 'aaaaaaaaaa', 'aaaaaaaaaa']);
+      const scale = 1, printDepth = 2, frameDepth = 15, lipDepth = 13;
+      const opts = { border: 4, lip: 1, clearance: 0.3, frameDepth, lipDepth, printDepth, smooth: false };
+      const frame = L3D.frame.buildFrame(g0.labels, g0.W, g0.H, opts, scale).mesh;
+      const print = L3D.mesh.buildSolid(L3D.contours.trace(g0.labels, g0.W, g0.H, { smooth: false }), [printDepth], 0, scale);
+      const at = L3D.frame.assembled(frameDepth, lipDepth, printDepth);
+      // The turn the viewer applies: x and z flip, then the frame is raised.
+      const turned = { positions: Float32Array.from(frame.positions), indices: frame.indices };
+      for (let i = 0; i < turned.positions.length; i += 3) {
+        turned.positions[i] = -turned.positions[i];
+        turned.positions[i + 2] = at.frameZ - turned.positions[i + 2];
+      }
+      const box = L3D.mesh.bounds([turned]), printBox = L3D.mesh.bounds([print]);
+      if (box.min[2] < -1e-6 || Math.abs(box.max[2] - frameDepth) > 1e-6) res.errors.push(`frame spans z ${box.min[2]} to ${box.max[2]}`);
+      if (Math.abs(printBox.max[2] + at.printZ - lipDepth) > 1e-6) res.errors.push('the print face should meet the back of the lip');
+      if (printBox.min[2] + at.printZ < -1e-6) res.errors.push('the print should stay above the bed');
+      // The print's top right corner is missing. After the turn, that corner of the frame's
+      // recess must be solid: no surface there at the height the print would need.
+      const inCorner = (x, y) => x > 0 && y > 0; // missing corner, in mm from centre (y up)
+      let onLip = 0;
+      const p = turned.positions;
+      for (let i = 0; i < p.length; i += 3) {
+        if (Math.abs(p[i + 2] - lipDepth) < 1e-6 && Math.abs(p[i]) < g0.W / 2 && Math.abs(p[i + 1]) < g0.H / 2 && inCorner(p[i] - 2, p[i + 1] - 1)) onLip++;
+      }
+      if (onLip) res.errors.push(`${onLip} lip points inside the missing corner: the frame isn't lined up with the print`);
+      const deep = L3D.frame.assembled(15, 2, 3);
+      if (deep.printZ !== 0 || deep.frameZ !== 16) res.errors.push('a print deeper than the recess should lift everything above the bed');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     return results;
   }
 
