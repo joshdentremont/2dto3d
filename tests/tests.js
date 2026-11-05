@@ -1001,6 +1001,78 @@
       results.push(res);
     }
 
+    // Jigsaw joints between tiles.
+    {
+      const res = { name: 'jigsaw joints', errors: [] };
+      const M = L3D.model, E = L3D.mesh;
+      // 200 x 100 pixels at 0.5 mm: a 100 x 50 mm print in two tiles, cut at x = 100.
+      const W = 200, H = 100, scale = 0.5, full = new Int16Array(W * H);
+      const J = M.JOINT, px = { head: J.head / scale, neck: J.neck / scale, neckLength: J.neckLength / scale, longSeam: J.longSeam / scale };
+      const cutOf = (labels, gap) => M.tileLabels(labels, W, H, 2, 1, 2, 0, Object.assign({ gap }, px)).labels;
+      const tileAt = (labels, x, y) => (labels[y * W + x] < 0 ? -1 : Math.floor(labels[y * W + x] / 2));
+      const a = cutOf(full, 0);
+      // One knob, from the left tile into the right, centred halfway down. Its head is wider
+      // than its neck, so it locks.
+      const reachOf = y => { let x = 100; while (tileAt(a, x, y) === 0) x++; return x - 100; };
+      if (reachOf(50) !== 18) res.errors.push(`knob reaches ${reachOf(50)} pixels`);
+      if (reachOf(10) !== 0 || reachOf(90) !== 0) res.errors.push('the cut is not straight away from the knob');
+      const widthAt = x => { let n = 0; for (let y = 0; y < H; y++) if (tileAt(a, x, y) === 0) n++; return n; };
+      if (!(widthAt(100 + 11) > widthAt(100 + 2) + 4)) res.errors.push(`head ${widthAt(111)} px, neck ${widthAt(102)} px`);
+      if (a.includes(-1)) res.errors.push('no clearance asked for, but pixels were cleared');
+      // Clearance: one pixel along the left tile's side of the join, all the way along.
+      const b = cutOf(full, 1);
+      for (const y of [10, 50]) {
+        let gaps = 0;
+        for (let x = 80; x < 130; x++) if (tileAt(b, x, y) === -1) gaps++;
+        if (gaps < 1 || gaps > 2) res.errors.push(`row ${y}: ${gaps} cleared pixels`);
+      }
+      // A cut through mostly empty space gets no knob.
+      const holed = Int16Array.from(full);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (Math.hypot(x + 0.5 - 110, y + 0.5 - 50) < 12) holed[y * W + x] = -1;
+      const c = cutOf(holed, 0);
+      let moved = 0;
+      for (let y = 0; y < H; y++) for (let x = 100; x < 130; x++) if (tileAt(c, x, y) === 0) moved++;
+      if (moved) res.errors.push(`${moved} pixels moved across a cut through a hole`);
+      // Long cuts get two knobs, facing opposite ways. 400 pixels at 0.5 mm is 200 mm.
+      const tall = M.tileLabels(new Int16Array(200 * 400), 200, 400, 2, 1, 2, 0, Object.assign({ gap: 0 }, px)).labels;
+      const side = y => (tall[y * 200 + 105] >= 0 && Math.floor(tall[y * 200 + 105] / 2) === 0 ? 'left' : tall[y * 200 + 95] >= 0 && Math.floor(tall[y * 200 + 95] / 2) === 1 ? 'right' : '');
+      if (side(133) === side(267) || !side(133) || !side(267)) res.errors.push(`long cut knobs: ${side(133)}, ${side(267)}`);
+
+      // Through the pipeline: watertight, and only with no frame or one frame.
+      const gw = 120, gh = 80, image = new Uint8ClampedArray(gw * gh * 4);
+      for (let i = 0; i < gw * gh; i++) image.set(i % gw < 60 ? [255, 0, 0, 255] : [0, 0, 255, 255], i * 4);
+      const palette = [{ id: 1, rgb: [255, 0, 0], filament: '#FF0000', name: 'Red', none: false, height: 1 },
+        { id: 2, rgb: [0, 0, 255], filament: '#0000FF', name: 'Blue', none: false, height: 2 }];
+      const settings = over => Object.assign({
+        mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: true, speckMm2: 0, bedWidth: 256, bedDepth: 256,
+        base: { type: 'none', thickness: 1, colorId: null }, loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+        outline: { shape: 'none', square: false, radius: 5, colorId: null }, border: { on: false, width: 2, height: 3, colorId: null },
+        frame: { on: false }, tiles: { on: true, cols: 2, rows: 2, joints: true, clearance: 0.15 },
+      }, over);
+      const run = s => L3D.pipeline.create().run({ gw, gh, scale: 0.5, capped: false, borderMm: 0, palette, settings: settings(s), image });
+      const r = run({});
+      if (r.openEdges !== 0 || r.tiles.list.length !== 4) res.errors.push(`${r.tiles.list.length} tiles, ${r.openEdges} open edges`);
+      // The clearance takes a little away; the rest is all there.
+      const whole = E.volume(r.model.body), sum = r.tiles.list.reduce((v, t) => v + E.volume(t.body), 0);
+      if (!(sum < whole && sum > whole * 0.97)) res.errors.push(`tiles ${sum}, whole ${whole}`);
+      // Some tile reaches past its share of the print.
+      if (!r.tiles.list.some(t => { const bb = E.bounds([t.body]); return bb.max[0] - bb.min[0] > 31 || bb.max[1] - bb.min[1] > 21; })) res.errors.push('no knob in any tile');
+      const coarse = L3D.pipeline.create().run({ gw, gh, scale: 0.5, capped: false, borderMm: 0, palette, settings: settings({ tiles: { on: true, cols: 2, rows: 2, joints: true, clearance: 0.3 } }), image });
+      if (!coarse.warnings.some(w => w.includes('0.50 mm'))) res.errors.push(`clearance note: ${coarse.warnings}`);
+      // Per-tile frames: no joints, so the tiles add up exactly.
+      const frameOn = { on: true, perTile: true, tileTrim: 0, tileGap: 10, border: 7, lip: 1, depth: 8, lipDepth: 6, clearance: 0.3, pocket: false, head: 3,
+        pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 12, standLength: 0 };
+      const framed = run({ frame: frameOn });
+      const framedSum = framed.tiles.list.reduce((v, t) => v + E.volume(t.body), 0);
+      if (!close(framedSum, E.volume(framed.model.body), 0.01)) res.errors.push('joints with per-tile frames');
+      // Automatic counts leave room for the knobs: 110 mm fits a 128 mm bed, not with knobs.
+      const auto = s => L3D.pipeline.create().run({ gw: 220, gh: 80, scale: 0.5, capped: false, borderMm: 0, palette,
+        settings: settings({ bedWidth: 128, bedDepth: 128, tiles: { on: true, cols: 0, rows: 0, joints: s, clearance: 0.15 } }), image: new Uint8ClampedArray(220 * 80 * 4).fill(255) }).tiles.cols;
+      if (auto(false) !== 1 || auto(true) !== 2) res.errors.push(`automatic columns ${auto(false)}, ${auto(true)}`);
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     // Project files.
     {
       const res = { name: 'project files', errors: [] };

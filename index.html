@@ -186,6 +186,13 @@
         </label>
       </div>
       <p class="muted small" data-tiles hidden>Cuts the print into pieces for printing one at a time, to make something bigger than your bed. Leave Columns and Rows blank for as few as fit your bed, with 5 mm spare on each side. Join the printed tiles with glue, or mount them on a backing.</p>
+      <label class="field check option-line" data-tiles-joints hidden><input type="checkbox" id="tileJoints"> Jigsaw joints</label>
+      <div class="fields" data-tiles-clearance hidden>
+        <label class="field" title="Gap left along each join so the pieces push together. Raise it if they're too tight, lower it if they're loose.">Joint clearance
+          <span class="unit"><input type="number" id="tileClearance" min="0" step="0.05" value="0.15"> mm</span>
+        </label>
+      </div>
+      <p class="muted small" data-tiles-clearance hidden>Cuts each join as a jigsaw knob, a round head on a narrow neck, so the tiles lock together side to side. They still lift apart, so a single frame or a little glue keeps them flat. The knobs reach 9 mm into the next tile, or less on small tiles, and are left out where a cut runs through empty space. The clearance is rounded to whole pixels at your Detail.</p>
 
       <h3>Frame</h3>
       <label class="field check option-line"><input type="checkbox" id="frameOn"> Make a frame</label>

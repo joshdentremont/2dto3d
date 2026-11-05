@@ -23,6 +23,7 @@
     borderOn: $('borderOn'), borderWidth: $('borderWidth'), borderHeight: $('borderHeight'), borderColor: $('borderColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     tilesOn: $('tilesOn'), tileCols: $('tileCols'), tileRows: $('tileRows'), tilesNote: $('tilesNote'),
+    tileJoints: $('tileJoints'), tileClearance: $('tileClearance'),
     frameOn: $('frameOn'), framePerTile: $('framePerTile'), frameTileTrim: $('frameTileTrim'), frameTileGap: $('frameTileGap'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
@@ -58,7 +59,7 @@
       loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
       outline: { shape: 'none', square: false, radius: 5, colorId: null },
       border: { on: false, width: 2, height: 3, colorId: null },
-      tiles: { on: false, cols: 0, rows: 0 }, // 0 = as few as fit the bed
+      tiles: { on: false, cols: 0, rows: 0, joints: false, clearance: 0.15 }, // 0 = as few as fit the bed
       frame: {
         on: false, perTile: false, tileTrim: null, tileGap: 10, border: 10, lip: 1, depth: 15, lipDepth: 10, clearance: 0.3, color: '#3A3A3A',
         pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
@@ -532,6 +533,8 @@
     s.tiles.on = el.tilesOn.checked;
     s.tiles.cols = Math.min(10, Math.max(0, Math.round(+el.tileCols.value) || 0));
     s.tiles.rows = Math.min(10, Math.max(0, Math.round(+el.tileRows.value) || 0));
+    s.tiles.joints = el.tileJoints.checked;
+    s.tiles.clearance = Math.max(0, +el.tileClearance.value || 0);
     s.frame.on = el.frameOn.checked;
     s.frame.perTile = el.framePerTile.checked;
     // Blank = what the frames cover between tiles; 0 is a real value, for no trim.
@@ -561,6 +564,10 @@
     document.querySelectorAll('[data-loop]').forEach(n => { n.hidden = !S.settings.loop.on; });
     document.querySelectorAll('[data-border]').forEach(n => { n.hidden = !S.settings.border.on; });
     document.querySelectorAll('[data-tiles]').forEach(n => { n.hidden = !S.settings.tiles.on; });
+    // Tiles with frames of their own don't get joints.
+    const jointsOffered = S.settings.tiles.on && !(S.settings.frame.on && S.settings.frame.perTile);
+    document.querySelectorAll('[data-tiles-joints]').forEach(n => { n.hidden = !jointsOffered; });
+    document.querySelectorAll('[data-tiles-clearance]').forEach(n => { n.hidden = !(jointsOffered && S.settings.tiles.joints); });
     document.querySelectorAll('[data-frame]').forEach(n => { n.hidden = !S.settings.frame.on; });
     el.frameExport.hidden = !S.settings.frame.on;
     el.frameView.hidden = !S.settings.frame.on;
@@ -587,7 +594,7 @@
   });
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
     el.baseType, el.baseThickness, el.outlineShape, el.outlineSquare, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
-    el.tilesOn, el.tileCols, el.tileRows,
+    el.tilesOn, el.tileCols, el.tileRows, el.tileJoints, el.tileClearance,
     el.frameOn, el.framePerTile, el.frameTileTrim, el.frameTileGap, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {

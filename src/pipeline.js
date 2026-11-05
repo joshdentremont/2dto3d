@@ -117,9 +117,21 @@
       const cells = []; // the grid area of each tile in tiles.list
       if (s.tiles.on && model.parts.length) {
         const fg = cache.finalGrid;
-        const cols = s.tiles.cols || L3D.model.tilesFor(fg.W * scale, s.bedWidth);
-        const rows = s.tiles.rows || L3D.model.tilesFor(fg.H * scale, s.bedDepth);
+        // Jigsaw joints, for tiles without frames of their own. Their knobs reach past a
+        // tile's edges, so automatic tile counts leave room for them.
+        const joined = !!s.tiles.joints && !(s.frame.on && s.frame.perTile);
+        const room = joined ? 2 * L3D.model.jointReach() : 0;
+        const cols = s.tiles.cols || L3D.model.tilesFor(fg.W * scale, s.bedWidth - room);
+        const rows = s.tiles.rows || L3D.model.tilesFor(fg.H * scale, s.bedDepth - room);
         const count = colors.length + 1;
+        let joints = null;
+        if (joined) {
+          const J = L3D.model.JOINT, gap = s.tiles.clearance > 0 ? Math.max(1, Math.round(s.tiles.clearance / scale)) : 0;
+          joints = { head: J.head / scale, neck: J.neck / scale, neckLength: J.neckLength / scale, longSeam: J.longSeam / scale, gap };
+          if (gap && Math.abs(gap * scale - s.tiles.clearance) > 0.05) {
+            warnings.push(`The joint clearance is ${(gap * scale).toFixed(2)} mm, the nearest this Detail allows.`);
+          }
+        }
         // Tiles with their own frames can lose a strip of image along the edges where they
         // meet, for what the frames cover between them. Unless set, that's the frames' border
         // and clearance, and half the gap they'll hang apart. It keeps a tile at least half as
@@ -134,9 +146,9 @@
         }
         tiles = { cols, rows, trim: trim * scale, list: [] };
         if (cols * rows > 1) {
-          const tileKey = [traceKey, cols, rows, trim].join('|');
+          const tileKey = [traceKey, cols, rows, trim, joints ? joints.gap : 'none'].join('|');
           if (cache.tileKey !== tileKey) {
-            const cut = L3D.model.tileLabels(fg.labels, fg.W, fg.H, cols, rows, count, trim);
+            const cut = L3D.model.tileLabels(fg.labels, fg.W, fg.H, cols, rows, count, trim, joints);
             cache.tileList = cut.tiles;
             cache.tileTrace = L3D.contours.trace(cut.labels, fg.W, fg.H, { smooth: s.smooth });
             cache.tileKey = tileKey;

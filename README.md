@@ -158,7 +158,19 @@ It only routes containers that opt in with `traefik.enable=true`.
      from the top left, so `logo-row1-col2` is the top row, second from the left. The
      filament-change list and the filament figures are for the whole print. Tiles butt up
      against each other with nothing holding them, so join them with glue or mount them on a
-     backing. A frame goes around the whole print in one piece, so for a large print it may
+     backing, or use jigsaw joints.
+
+     **Jigsaw joints** (for tiles with no frame or a single frame) cut each join as a jigsaw
+     knob: a round head 7 mm across on a 4 mm neck, reaching 9 mm into the next tile. Every
+     cut gets one in its middle, or two at its thirds if it's longer than 150 mm, and
+     neighbouring knobs face opposite ways. They shrink on short cuts and small tiles, and
+     they're left out where either side of the cut is mostly empty. They lock the tiles
+     together side to side, but nothing stops a tile lifting out, so a single frame or a little
+     glue keeps them flat. **Joint clearance** (default 0.15 mm) is a gap cut along one side
+     of every join so the pieces push together: raise it if they're too tight, lower it if
+     they're loose. It's rounded to whole pixels at your Detail, with a note if that changes
+     it noticeably. Automatic tile counts leave room for the knobs, which can make a tile up to
+     18 mm bigger than its share of the print. A frame goes around the whole print in one piece, so for a large print it may
      not fit your bed. Tick **One frame per tile**, under Frame, to give each tile a frame of
      its own instead, shaped around that tile, with the same settings, hanging pocket, bumps
      and stand. **Frame (.stl)** and **Stand (.stl)** then give a ZIP with a file per tile,

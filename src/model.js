@@ -139,26 +139,103 @@
   // l + count * tile, where count is more than any label. trim pixels are left out along every
   // edge where two tiles meet, and none along the outside. Returns { labels, tiles: [{ row, col,
   // x0, x1, y0, y1 }] } with tiles numbered row by row from the top left, in grid pixels.
-  function tileLabels(labels, W, H, cols, rows, count, trim) {
+  // joints (pixels, optional) adds jigsaw joints along the cuts: see addJoints.
+  function tileLabels(labels, W, H, cols, rows, count, trim, joints) {
     const t = trim || 0;
-    const edge = (k, n, size) => Math.round(k * size / n);
+    const xs = [], ys = [];
+    for (let k = 0; k <= cols; k++) xs.push(Math.round(k * W / cols));
+    for (let k = 0; k <= rows; k++) ys.push(Math.round(k * H / rows));
     const tiles = [];
-    const out = new Int16Array(W * H).fill(-1);
+    const owner = new Int16Array(W * H).fill(-1); // which tile each pixel belongs to
     for (let row = 0; row < rows; row++) {
-      const y0 = edge(row, rows, H) + (row > 0 ? t : 0), y1 = edge(row + 1, rows, H) - (row < rows - 1 ? t : 0);
+      const y0 = ys[row] + (row > 0 ? t : 0), y1 = ys[row + 1] - (row < rows - 1 ? t : 0);
       for (let col = 0; col < cols; col++) {
-        const x0 = edge(col, cols, W) + (col > 0 ? t : 0), x1 = edge(col + 1, cols, W) - (col < cols - 1 ? t : 0);
+        const x0 = xs[col] + (col > 0 ? t : 0), x1 = xs[col + 1] - (col < cols - 1 ? t : 0);
         const tile = tiles.length;
         tiles.push({ row, col, x0, x1, y0, y1 });
-        for (let y = y0; y < y1; y++) {
-          for (let x = x0; x < x1; x++) {
-            const l = labels[y * W + x];
-            if (l >= 0) out[y * W + x] = l + count * tile;
-          }
+        for (let y = y0; y < y1; y++) owner.fill(tile, y * W + x0, y * W + x1);
+      }
+    }
+    if (joints) addJoints(owner, labels, W, H, cols, rows, xs, ys, joints);
+    const out = new Int16Array(W * H).fill(-1);
+    for (let i = 0; i < W * H; i++) if (labels[i] >= 0 && owner[i] >= 0) out[i] = labels[i] + count * owner[i];
+    return { labels: out, tiles };
+  }
+
+  // Jigsaw joints, in mm: a knob is a round head of radius `head` on a neck `neck` wide and
+  // `neckLength` long, so it reaches neckLength + 2 * head across the cut. A cut longer than
+  // `longSeam` gets two.
+  const JOINT = { head: 3.5, neck: 4, neckLength: 2, longSeam: 150 };
+  const jointReach = () => JOINT.neckLength + 2 * JOINT.head;
+
+  // Moves knobs from one tile into the next along every cut between tiles, in owner (the tile
+  // of each pixel). Knobs alternate in direction, shrink to fit short cuts and small tiles,
+  // and are left out where either side is mostly empty. Then `gap` pixels are cleared along
+  // one side of every join, so the pieces fit together. j: { head, neck, neckLength,
+  // longSeam, gap }, in pixels.
+  function addJoints(owner, labels, W, H, cols, rows, xs, ys, j) {
+    const solid = (list, tile) => list.filter(p => owner[p] === tile && labels[p] >= 0).length >= 0.8 * list.length;
+
+    // A knob on the cut at `line`, centred `centre` along it, belonging to tile a and reaching
+    // into tile b, in direction dir (+1 = towards larger x or y), at k times full size.
+    function knob(vertical, line, centre, a, b, dir, k) {
+      const R = j.head * k, half = j.neck * k / 2, neck = j.neckLength * k, cu = neck + R, reach = neck + 2 * R;
+      const inside = (u, v) => u >= 0 && u <= reach && ((u <= cu && Math.abs(v) <= half) || (u - cu) ** 2 + v ** 2 <= R * R);
+      const into = [], behind = [];
+      for (let du = -Math.ceil(reach) - 1; du <= Math.ceil(reach) + 1; du++) {
+        for (let dv = -Math.ceil(R) - 1; dv <= Math.ceil(R) + 1; dv++) {
+          const across = Math.floor(line) + du, along = Math.floor(centre) + dv;
+          const x = vertical ? across : along, y = vertical ? along : across;
+          if (x < 0 || y < 0 || x >= W || y >= H) continue;
+          const u = dir * (across + 0.5 - line), v = along + 0.5 - centre, p = y * W + x;
+          if (inside(u, v)) into.push(p);
+          else if (inside(-u, v)) behind.push(p);
+        }
+      }
+      if (!into.length || !solid(into, b) || !solid(behind, a)) return;
+      for (const p of into) if (owner[p] === b) owner[p] = a;
+    }
+
+    function seam(vertical, line, from, to, lo, hi, across, parity) {
+      const len = to - from, n = len > j.longSeam ? 2 : 1;
+      const k = Math.min(1, 0.8 * len / (n + 1) / (2 * j.head), across / 3 / (j.neckLength + 2 * j.head));
+      for (let i = 0; i < n; i++) {
+        const dir = (parity + i) % 2 ? 1 : -1;
+        knob(vertical, line, from + len * (i + 1) / (n + 1), dir > 0 ? lo : hi, dir > 0 ? hi : lo, dir, k);
+      }
+    }
+    const width = (e, k) => Math.min(e[k] - e[k - 1], e[k + 1] - e[k]);
+    for (let row = 0; row < rows; row++) {
+      for (let col = 1; col < cols; col++) seam(true, xs[col], ys[row], ys[row + 1], row * cols + col - 1, row * cols + col, width(xs, col), row + col);
+    }
+    for (let row = 1; row < rows; row++) {
+      for (let col = 0; col < cols; col++) seam(false, ys[row], xs[col], xs[col + 1], (row - 1) * cols + col, row * cols + col, width(ys, row), row + col);
+    }
+
+    // The gap: cleared from the lower-numbered tile's side of each join, within gap - 0.5
+    // pixels of its edge, so one pixel is a one pixel gap.
+    if (!(j.gap > 0)) return;
+    const edges = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const p = y * W + x, o = owner[p];
+        if (o < 0 || labels[p] < 0) continue;
+        for (const q of [x + 1 < W ? p + 1 : -1, y + 1 < H ? p + W : -1, x > 0 ? p - 1 : -1, y > 0 ? p - W : -1]) {
+          if (q >= 0 && owner[q] > o && labels[q] >= 0) { edges.push(p, o); break; }
         }
       }
     }
-    return { labels: out, tiles };
+    const r = j.gap - 0.5, ri = Math.ceil(r);
+    for (let e = 0; e < edges.length; e += 2) {
+      const p = edges[e], o = edges[e + 1], x = p % W, y = (p - x) / W;
+      for (let dy = -ri; dy <= ri; dy++) {
+        for (let dx = -ri; dx <= ri; dx++) {
+          if (dx * dx + dy * dy >= r * r) continue;
+          const qx = x + dx, qy = y + dy;
+          if (qx >= 0 && qy >= 0 && qx < W && qy < H && owner[qy * W + qx] === o) owner[qy * W + qx] = -1;
+        }
+      }
+    }
   }
 
   // The trace of a tiled grid as seen by one tile, with its labels back to what they were and
@@ -270,5 +347,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, gridSize, addSquare, addOutline, addBorder, tilesFor, tileLabels, tileGraph, moved, outlineGrowth, maxCornerRadius, fitsBed, build };
+  L3D.model = { traceLabels, gridSize, addSquare, addOutline, addBorder, tilesFor, tileLabels, tileGraph, moved, JOINT, jointReach, outlineGrowth, maxCornerRadius, fitsBed, build };
 })(globalThis.L3D = globalThis.L3D || {});
