@@ -17,6 +17,9 @@
     // when it does. model and frame are null if there's nothing to build. tiles is null unless
     // the print is being split, then { cols, rows, list: [{ row, col, offset, parts, body }] },
     // with each tile centred on x/y = 0 and offset being where it sits in the whole print.
+    // frame.pieces lists the frames as { row, col, mesh, stand }: one, or one per tile when
+    // frame.perTile, each centred like its tile. frame.mesh and frame.stand are the one frame's,
+    // or null when per tile.
     // openEdges is null if the model is too big to check. All of it can be posted between threads.
     function run(job) {
       const { gw, gh, scale, capped, borderMm, palette, settings: s } = job;
@@ -106,74 +109,10 @@
       }, scale);
       warnings.push(...model.warnings);
 
-      // Frame: a separate part shaped around the print.
-      let frame = null;
-      if (s.frame.on && model.parts.length) {
-        const printBox = L3D.mesh.bounds([model.body]);
-        const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
-        const f = s.frame;
-        const head = f.pocket ? f.head : 0;
-        // The rounding can't reach past the border or the frame's depth, or off the lip.
-        const outerRadius = Math.min(f.outerRadius, f.border, f.depth);
-        if (outerRadius < f.outerRadius) warnings.push(`The outer edge radius was limited to ${outerRadius} mm, the size of the frame's border or depth.`);
-        // Always leave some lip at the front.
-        const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
-        if (lipDepth < f.lipDepth) {
-          warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
-        }
-        const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
-        if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
-        const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius, f.stand, f.standWidth].join('|');
-        if (cache.frameKey !== frameKey) {
-          const fg = cache.finalGrid;
-          const built = L3D.frame.buildFrame(fg.labels, fg.W, fg.H, {
-            border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
-            head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, stand: f.stand, standWidth: f.standWidth, smooth: s.smooth,
-          }, scale);
-          cache.frameMesh = built.mesh;
-          cache.framePocket = built.pocket;
-          cache.frameBumps = built.bumps;
-          cache.frameStand = built.stand;
-          cache.frameKey = frameKey;
-        }
-        if (cache.framePocket === 'border') {
-          const need = L3D.frame.pocketBorder(head);
-          warnings.push(f.border >= need
-            ? 'The hanging pocket doesn\'t fit at the top centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean top edge.'
-            : `The hanging pocket doesn't fit in the top of the frame, so it was left out. A ${head} mm head needs a border of at least ${need} mm.`);
-        } else if (cache.framePocket === 'thin') {
-          warnings.push(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
-        }
-        // The stand is sized to its slot, so it's left out along with the slot.
-        let stand = null, standLength = 0;
-        if (cache.frameStand.fit === 'ok') {
-          const box = L3D.mesh.bounds([cache.frameMesh]), frameHeight = box.max[1] - box.min[1];
-          stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, cache.frameStand));
-          standLength = L3D.frame.standReach(frameHeight);
-          if (cache.frameStand.width < f.standWidth - 0.01) warnings.push(`The stand was narrowed to ${cache.frameStand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
-          const lean = Math.ceil(L3D.frame.minLean(frameHeight, f.depth));
-          if (f.standAngle < lean) warnings.push(`At ${f.standAngle}° the frame may tip forwards, because it's deep for its height. A lean angle of at least ${lean}° keeps its balance behind the edge it stands on.`);
-          const need = Math.ceil(L3D.frame.minReach(frameHeight, f.depth, f.standAngle));
-          if ((f.standLength || standLength) < need) warnings.push(`With a stand this short the frame may tip backwards. A stand length of at least ${need} mm keeps its balance in front of the stand's end.`);
-        } else if (cache.frameStand.fit === 'border') {
-          const need = L3D.frame.standBorder();
-          warnings.push(f.border >= need
-            ? 'The stand doesn\'t fit at the bottom centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean bottom edge.'
-            : `The stand doesn't fit in the bottom of the frame, so it was left out. It needs a border of at least ${need} mm.`);
-        } else if (cache.frameStand.fit === 'thin') {
-          warnings.push(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
-        }
-        if (printDepth > lipDepth) {
-          warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
-        } else if (!cache.frameBumps) {
-          warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
-        }
-        frame = { mesh: cache.frameMesh, stand, standLength, bumps: cache.frameBumps, depth: f.depth, lipDepth, printDepth };
-      }
-
       // Tiles: the same model again, cut up. The cut needs a trace of its own, as each tile
       // has its own labels. One more label than the colours leaves room for a base plate's.
       let tiles = null;
+      const cells = []; // the grid area of each tile in tiles.list
       if (s.tiles.on && model.parts.length) {
         const fg = cache.finalGrid;
         const cols = s.tiles.cols || L3D.model.tilesFor(fg.W * scale, s.bedWidth);
@@ -203,33 +142,131 @@
               parts: built.parts.map(p => Object.assign({}, p, { mesh: L3D.model.moved(p.mesh, -x, -y) })),
               body: L3D.model.moved(built.body, -x, -y),
             });
+            cells.push(t);
           });
         }
       }
 
-      // Each part has to fit on its own: they're printed separately.
+      // Frame: a separate part shaped around the print, or one around each tile.
+      let frame = null;
+      if (s.frame.on && model.parts.length) {
+        const printBox = L3D.mesh.bounds([model.body]);
+        const printDepth = Math.round(printBox.max[2] * 1000) / 1000;
+        const f = s.frame;
+        const head = f.pocket ? f.head : 0;
+        // The rounding can't reach past the border or the frame's depth, or off the lip.
+        const outerRadius = Math.min(f.outerRadius, f.border, f.depth);
+        if (outerRadius < f.outerRadius) warnings.push(`The outer edge radius was limited to ${outerRadius} mm, the size of the frame's border or depth.`);
+        // Always leave some lip at the front.
+        const lipDepth = Math.min(f.lipDepth, f.depth - MIN_FRAME_LIP);
+        if (lipDepth < f.lipDepth) {
+          warnings.push(`The lip depth was limited to ${lipDepth.toFixed(1)} mm, to leave a lip at least ${MIN_FRAME_LIP} mm thick at the front of the frame.`);
+        }
+        const innerRadius = Math.min(f.innerRadius, L3D.frame.maxInnerRadius(f.lip + f.clearance, f.depth - lipDepth));
+        if (innerRadius < f.innerRadius) warnings.push(`The inner edge radius was limited to ${innerRadius.toFixed(1)} mm, to fit on the lip. A wider lip overlap or a thicker lip allows more.`);
+        const frameKey = [traceKey, scale, printDepth, f.border, f.lip, f.depth, lipDepth, f.clearance, head, f.pocketDepth, outerRadius, innerRadius, f.stand, f.standWidth].join('|');
+        if (cache.frameKey !== frameKey) {
+          cache.frames = new Map();
+          cache.frameKey = frameKey;
+        }
+        const opts = {
+          border: f.border, lip: f.lip, clearance: f.clearance, frameDepth: f.depth, lipDepth, printDepth,
+          head, pocketDepth: f.pocketDepth, outerRadius, innerRadius, stand: f.stand, standWidth: f.standWidth, smooth: s.smooth,
+        };
+
+        // One frame, with its stand, around the grid given. Its messages go in `notes`, so
+        // each is given once however many frames it applies to.
+        const notes = new Set();
+        const makeFrame = (key, labels, W, H) => {
+          let built = cache.frames.get(key);
+          if (!built) {
+            built = L3D.frame.buildFrame(labels, W, H, opts, scale);
+            cache.frames.set(key, built);
+          }
+          if (built.pocket === 'border') {
+            const need = L3D.frame.pocketBorder(head);
+            notes.add(f.border >= need
+              ? 'The hanging pocket doesn\'t fit at the top centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean top edge.'
+              : `The hanging pocket doesn't fit in the top of the frame, so it was left out. A ${head} mm head needs a border of at least ${need} mm.`);
+          } else if (built.pocket === 'thin') {
+            notes.add(`The frame is too thin for a hanging pocket, so it was left out. It needs a frame depth of at least ${L3D.frame.pocketThickness().toFixed(1)} mm.`);
+          }
+          // The stand is sized to its slot, so it's left out along with the slot.
+          let stand = null, standLength = 0;
+          if (built.stand.fit === 'ok') {
+            const box = L3D.mesh.bounds([built.mesh]), frameHeight = box.max[1] - box.min[1];
+            stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, built.stand));
+            standLength = L3D.frame.standReach(frameHeight);
+            if (built.stand.width < f.standWidth - 0.01) notes.add(`The stand was narrowed to ${built.stand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
+            const lean = Math.ceil(L3D.frame.minLean(frameHeight, f.depth));
+            if (f.standAngle < lean) notes.add(`At ${f.standAngle}° the frame may tip forwards, because it's deep for its height. A lean angle of at least ${lean}° keeps its balance behind the edge it stands on.`);
+            const need = Math.ceil(L3D.frame.minReach(frameHeight, f.depth, f.standAngle));
+            if ((f.standLength || standLength) < need) notes.add(`With a stand this short the frame may tip backwards. A stand length of at least ${need} mm keeps its balance in front of the stand's end.`);
+          } else if (built.stand.fit === 'border') {
+            const need = L3D.frame.standBorder();
+            notes.add(f.border >= need
+              ? 'The stand doesn\'t fit at the bottom centre of the frame, because of the shape of your print there, so it was left out. An Outline shape gives the frame a clean bottom edge.'
+              : `The stand doesn't fit in the bottom of the frame, so it was left out. It needs a border of at least ${need} mm.`);
+          } else if (built.stand.fit === 'thin') {
+            notes.add(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
+          }
+          return { mesh: built.mesh, stand, standLength, bumps: built.bumps };
+        };
+
+        // A tile's frame is centred on the tile, as the tile is.
+        const fg = cache.finalGrid;
+        const perTile = !!f.perTile && !!tiles && tiles.list.length > 1;
+        const pieces = perTile
+          ? tiles.list.map((t, k) => {
+            const c = cells[k], w = c.x1 - c.x0, h = c.y1 - c.y0, labels = new Int16Array(w * h);
+            for (let y = 0; y < h; y++) labels.set(fg.labels.subarray((c.y0 + y) * fg.W + c.x0, (c.y0 + y) * fg.W + c.x1), y * w);
+            return Object.assign({ row: t.row, col: t.col }, makeFrame(`${cache.tileKey}|${t.row},${t.col}`, labels, w, h));
+          })
+          : [Object.assign({ row: 0, col: 0 }, makeFrame('whole', fg.labels, fg.W, fg.H))];
+        warnings.push(...notes);
+        const bumps = pieces.every(p => p.bumps);
+        if (printDepth > lipDepth) {
+          warnings.push(`Your print is ${printDepth.toFixed(1)} mm deep, more than the ${lipDepth.toFixed(1)} mm lip depth, so it will stick out of the back of the frame.`);
+        } else if (!bumps) {
+          warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
+        }
+        frame = {
+          mesh: perTile ? null : pieces[0].mesh, stand: perTile ? null : pieces[0].stand,
+          standLength: pieces[0].standLength, bumps, perTile, pieces, depth: f.depth, lipDepth, printDepth,
+        };
+      }
+
+      // Each part has to fit on its own: they're printed separately. Tiles, and their frames,
+      // are nearly all one size, so one warning covers each kind.
       const checkBed = (what, meshes) => {
         const b = L3D.mesh.bounds(meshes), w = b.max[0] - b.min[0], d = b.max[1] - b.min[1];
         const fit = L3D.model.fitsBed(w, d, s.bedWidth, s.bedDepth);
         if (fit === 'no') warnings.push(`The ${what} is ${w.toFixed(1)} × ${d.toFixed(1)} mm, too big for the ${s.bedWidth} × ${s.bedDepth} mm bed.`);
         else if (fit === 'turn') warnings.push(`The ${what} only fits the bed turned 90°, so rotate it in your slicer.`);
       };
-      if (tiles && tiles.list.length) {
+      const checkEach = (list, what, meshesOf) => {
         const before = warnings.length;
-        // Tiles are nearly all one size, so one warning covers them.
-        for (const t of tiles.list) {
-          checkBed(`tile in row ${t.row + 1}, column ${t.col + 1}`, t.parts.map(p => p.mesh));
+        for (const item of list) {
+          const meshes = meshesOf(item);
+          if (meshes.length) checkBed(what(item), meshes);
           if (warnings.length > before) break;
         }
-      } else if (model.parts.length) {
-        checkBed('print', model.parts.map(p => p.mesh));
+      };
+      const where = t => `row ${t.row + 1}, column ${t.col + 1}`;
+      if (tiles && tiles.list.length) checkEach(tiles.list, t => `tile in ${where(t)}`, t => t.parts.map(p => p.mesh));
+      else if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
+      if (frame && frame.perTile) {
+        checkEach(frame.pieces, p => `frame for the tile in ${where(p)}`, p => [p.mesh]);
+        checkEach(frame.pieces, p => `stand for the tile in ${where(p)}`, p => (p.stand ? [p.stand] : []));
+      } else if (frame) {
+        checkBed('frame', [frame.mesh]);
+        if (frame.stand) checkBed('stand', [frame.stand]);
       }
-      if (frame) checkBed('frame', [frame.mesh]);
-      if (frame && frame.stand) checkBed('stand', [frame.stand]);
 
       let openEdges = null;
       if (model.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0) <= CHECK_LIMIT) {
-        const meshes = model.parts.map(p => p.mesh).concat(model.body, frame ? frame.mesh : [], frame && frame.stand ? frame.stand : []);
+        const meshes = model.parts.map(p => p.mesh).concat(model.body);
+        if (frame) for (const p of frame.pieces) meshes.push(p.mesh, ...(p.stand ? [p.stand] : []));
         if (tiles) for (const t of tiles.list) meshes.push(...t.parts.map(p => p.mesh), t.body);
         openEdges = meshes.reduce((a, mesh) => a + L3D.mesh.openEdges(mesh), 0);
       }

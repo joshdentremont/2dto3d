@@ -927,6 +927,39 @@
       const left = L3D.pipeline.create().run({ gw, gh, scale: 1, capped: false, borderMm: 0, palette, settings: settings({ tiles: { on: true, cols: 2, rows: 1 } }), image: half });
       if (left.tiles.list.length !== 1 || left.openEdges !== 0) res.errors.push(`half image: ${left.tiles.list.length} tiles`);
 
+      // A frame per tile: one each, shaped around that tile and centred on it, all closed.
+      const frameOn = { on: true, perTile: true, border: 7, lip: 1, depth: 8, lipDepth: 6, clearance: 0.3, pocket: true, head: 3, pocketDepth: 0,
+        outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 12, standLength: 0 };
+      const framed = run({ frame: frameOn });
+      const pieces = framed.frame.pieces;
+      if (!framed.frame.perTile || pieces.length !== 4 || framed.frame.mesh !== null) res.errors.push(`${pieces.length} frames`);
+      if (framed.openEdges !== 0) res.errors.push(`${framed.openEdges} open edges with tile frames`);
+      for (const p of pieces) {
+        const b = E.bounds([p.mesh]), w = b.max[0] - b.min[0], h = b.max[1] - b.min[1];
+        // 45 x 30 mm tiles, with a 7.3 mm border all round, give or take the smoothing.
+        if (Math.abs(w - 59.6) > 1 || Math.abs(h - 44.6) > 1) res.errors.push(`frame ${p.row},${p.col} is ${w} x ${h}`);
+        if (Math.abs(b.max[0] + b.min[0]) > 0.5 || Math.abs(b.max[1] + b.min[1]) > 0.5) res.errors.push(`frame ${p.row},${p.col} is not centred`);
+        if (!p.stand) res.errors.push(`frame ${p.row},${p.col} has no stand`);
+      }
+      // The same message for every frame is given once.
+      if (new Set(framed.warnings).size !== framed.warnings.length) res.errors.push(`repeated warnings: ${framed.warnings}`);
+      const pocketNote = run({ frame: Object.assign({}, frameOn, { border: 3 }) });
+      if (pocketNote.warnings.filter(w => w.includes('hanging pocket')).length !== 1) res.errors.push(`pocket warnings: ${pocketNote.warnings}`);
+      // Off, or with nothing to split, there's one frame around the whole print.
+      const whole = run({ frame: Object.assign({}, frameOn, { perTile: false }) });
+      if (whole.frame.perTile || whole.frame.pieces.length !== 1 || !whole.frame.mesh) res.errors.push('one frame');
+      // About 104.6 mm across, where a tile's is 59.6.
+      if (E.bounds([whole.frame.mesh]).max[0] < 45) res.errors.push(`the whole frame is ${2 * E.bounds([whole.frame.mesh]).max[0]} mm wide`);
+      const single = run({ frame: frameOn, tiles: { on: false, cols: 0, rows: 0 } });
+      if (single.frame.perTile || single.frame.pieces.length !== 1) res.errors.push('per tile with no tiles');
+      // Frames too big for the bed: one warning, naming a tile.
+      const small = run({ frame: frameOn, bedWidth: 50, bedDepth: 50 });
+      if (small.warnings.filter(w => w.includes('frame for the tile')).length !== 1) res.errors.push(`frame bed warnings: ${small.warnings}`);
+      // Exports, named like the tiles.
+      const frameNames = kind => Object.keys(fflate.unzipSync(L3D.exporters.tilesZip(pieces, 'logo', kind))).sort().join();
+      if (frameNames('frame') !== 'logo-row1-col1-frame.stl,logo-row1-col2-frame.stl,logo-row2-col1-frame.stl,logo-row2-col2-frame.stl') res.errors.push(`frame names ${frameNames('frame')}`);
+      if (!frameNames('stand').includes('logo-row2-col2-stand.stl')) res.errors.push(`stand names ${frameNames('stand')}`);
+
       // Exports: a file per tile, in each kind.
       const names = kind => Object.keys(fflate.unzipSync(L3D.exporters.tilesZip(r.tiles.list, 'logo', kind)));
       if (names('3mf').length !== 4 || !names('3mf').includes('logo-row1-col2.3mf')) res.errors.push(`3MF names ${names('3mf')}`);

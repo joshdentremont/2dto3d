@@ -158,7 +158,12 @@ It only routes containers that opt in with `traefik.enable=true`.
      from the top left, so `logo-row1-col2` is the top row, second from the left. The
      filament-change list and the filament figures are for the whole print. Tiles butt up
      against each other with nothing holding them, so join them with glue or mount them on a
-     backing. The frame stays in one piece, so a frame for a large print may not fit your bed.
+     backing. A frame goes around the whole print in one piece, so for a large print it may
+     not fit your bed. Tick **One frame per tile**, under Frame, to give each tile a frame of
+     its own instead, shaped around that tile, with the same settings, hanging pocket, bumps
+     and stand. **Frame (.stl)** and **Stand (.stl)** then give a ZIP with a file per tile,
+     named like the tiles, and **Assembled** shows the framed tiles side by side, frames
+     10 mm apart.
    - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
      print. A lip covers the print's edge from the front, and the print pushes into a recess
      from the back, face first. You set:

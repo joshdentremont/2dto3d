@@ -23,7 +23,7 @@
     borderOn: $('borderOn'), borderWidth: $('borderWidth'), borderHeight: $('borderHeight'), borderColor: $('borderColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     tilesOn: $('tilesOn'), tileCols: $('tileCols'), tileRows: $('tileRows'), tilesNote: $('tilesNote'),
-    frameOn: $('frameOn'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
+    frameOn: $('frameOn'), framePerTile: $('framePerTile'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
     framePocketDepth: $('framePocketDepth'), frameOuterRadius: $('frameOuterRadius'), frameInnerRadius: $('frameInnerRadius'),
@@ -60,7 +60,7 @@
       border: { on: false, width: 2, height: 3, colorId: null },
       tiles: { on: false, cols: 0, rows: 0 }, // 0 = as few as fit the bed
       frame: {
-        on: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
+        on: false, perTile: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
         pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
       },
     },
@@ -533,7 +533,8 @@
     s.tiles.cols = Math.min(10, Math.max(0, Math.round(+el.tileCols.value) || 0));
     s.tiles.rows = Math.min(10, Math.max(0, Math.round(+el.tileRows.value) || 0));
     s.frame.on = el.frameOn.checked;
-    s.frame.border =Math.max(1, +el.frameBorder.value || 10);
+    s.frame.perTile = el.framePerTile.checked;
+    s.frame.border = Math.max(1, +el.frameBorder.value || 10);
     s.frame.lip = Math.max(0.5, +el.frameLip.value || 1);
     s.frame.depth = Math.max(1, +el.frameDepth.value || 15);
     s.frame.lipDepth = Math.max(0.5, +el.frameLipDepth.value || 13);
@@ -564,6 +565,7 @@
     el.framePocketDepth.placeholder = L3D.frame.maxPocketDepth(S.settings.frame.depth).toFixed(1).replace(/\.0$/, '');
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-frame-stand]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.stand); });
+    document.querySelectorAll('[data-frame-tiles]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.tiles.on); });
     const outline = [S.settings.outline.shape, S.settings.outline.square ? 'square' : ''];
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').some(v => outline.includes(v)); });
     el.singleOn.hidden = mode !== 'layered';
@@ -580,7 +582,7 @@
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
     el.baseType, el.baseThickness, el.outlineShape, el.outlineSquare, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.tilesOn, el.tileCols, el.tileRows,
-    el.frameOn, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
+    el.frameOn, el.framePerTile, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
@@ -846,39 +848,70 @@
     showOutput(r.warnings);
   }
 
-  // Puts the model in the 3D view. A frame goes next to the print, 10 mm to the right, as it
-  // prints; or around it, as it will look finished. (They're printed separately, so a pair
-  // running off the bed side by side doesn't mean either part won't fit.) A stand goes next
-  // to the frame, and isn't shown in the assembled view, which has the frame lying on its back.
+  // Puts the model in the 3D view. Side by side shows everything as it prints: the print, then
+  // its frame or frames, then any stands, left to right 10 mm apart. (They're printed
+  // separately, so a row running off the bed doesn't mean any part won't fit.) Tiles are shown
+  // spread apart, and their frames in the same grid. Assembled shows the print in its frame,
+  // as it will look finished, without stands, as the frame is lying on its back: tiles with
+  // their own frames sit with the frames 10 mm apart, as in side by side.
   function showParts() {
-    const parts = S.model.parts, frame = S.frame, tiles = S.tiles;
-    // The print at (x, 0), split up with a gap between tiles if it's in tiles.
-    const placed = x => {
-      if (!tiles) return parts.map(p => Object.assign({}, p, { offset: [x, 0, 0] }));
-      return [].concat(...tiles.list.map(t => {
-        const dx = t.offset[0] + (t.col - (tiles.cols - 1) / 2) * TILE_GAP;
-        const dy = t.offset[1] - (t.row - (tiles.rows - 1) / 2) * TILE_GAP;
-        return t.parts.map(p => Object.assign({}, p, { offset: [x + dx, dy, 0] }));
-      }));
+    const frame = S.frame, tiles = S.tiles, f = S.settings.frame, color = f.color;
+    // Where a tile, or its frame, goes: its place in the whole print, spread out by `gap`.
+    const spread = (t, gap) => [
+      t.offset[0] + (t.col - (tiles.cols - 1) / 2) * gap,
+      t.offset[1] - (t.row - (tiles.rows - 1) / 2) * gap,
+    ];
+    const print = gap => (tiles
+      ? [].concat(...tiles.list.map(t => {
+        const [x, y] = spread(t, gap);
+        return t.parts.map(part => ({ part, x, y }));
+      }))
+      : S.model.parts.map(part => ({ part, x: 0, y: 0 })));
+    const show = items => viewer.setParts(items.map(({ part, x, y, z, turned }) => Object.assign({}, part, { offset: [x, y, z || 0], turned })));
+    if (!frame) { show(print(TILE_GAP)); return; }
+
+    // A tile's frame reaches this far past it on each side.
+    const reach = f.border + f.clearance;
+    const offsetOf = p => tiles.list.find(t => t.row === p.row && t.col === p.col).offset;
+    const frameAt = (p, gap) => (frame.perTile ? spread({ row: p.row, col: p.col, offset: offsetOf(p) }, gap) : [0, 0]);
+    const asFrame = (p, gap) => {
+      const [x, y] = frameAt(p, gap);
+      return { part: { name: 'Frame', color, mesh: p.mesh }, x, y };
     };
-    if (!frame) { viewer.setParts(placed(0)); return; }
-    const color = S.settings.frame.color;
+
     if (S.frameView === 'assembled') {
       const at = L3D.frame.assembled(frame.depth, frame.lipDepth, frame.printDepth);
-      viewer.setParts(parts.map(p => Object.assign({}, p, { offset: [0, 0, at.printZ] })).concat(
-        [{ name: 'Frame', color, mesh: frame.mesh, turned: true, offset: [0, 0, at.frameZ] }]));
+      const gap = TILE_GAP + 2 * reach;
+      const inside = frame.perTile ? print(gap) : S.model.parts.map(part => ({ part, x: 0, y: 0 }));
+      show(inside.map(item => Object.assign(item, { z: at.printZ })).concat(
+        frame.pieces.map(p => Object.assign(asFrame(p, gap), { z: at.frameZ, turned: true }))));
       return;
     }
-    // Side by side, with the pair centred on the bed.
-    const printBox = L3D.mesh.bounds([S.model.body]), frameBox = L3D.mesh.bounds([frame.mesh]);
-    const spread = tiles ? (tiles.cols - 1) / 2 * TILE_GAP : 0;
-    const frameAt = printBox.max[0] + spread - frameBox.min[0] + 10;
-    const standAt = frameAt + frameBox.max[0] + 10;
-    const right = frame.stand ? standAt + L3D.mesh.bounds([frame.stand]).max[0] : frameAt + frameBox.max[0];
-    const centre = (printBox.min[0] - spread + right) / 2;
-    const extras = [{ name: 'Frame', color, mesh: frame.mesh, offset: [frameAt - centre, 0, 0] }];
-    if (frame.stand) extras.push({ name: 'Stand', color, mesh: frame.stand, offset: [standAt - centre, 0, 0] });
-    viewer.setParts(placed(-centre).concat(extras));
+
+    const stands = frame.pieces.filter(p => p.stand);
+    const standDepth = stands.length ? L3D.mesh.bounds([stands[0].stand]).max[1] : 0;
+    const groups = [
+      print(TILE_GAP),
+      frame.pieces.map(p => asFrame(p, TILE_GAP + 2 * reach)),
+      stands.map((p, k) => ({ part: { name: 'Stand', color, mesh: p.stand }, x: 0, y: -k * (standDepth + 10) })),
+    ];
+    // Lines the groups up left to right, then centres the lot on the bed.
+    let cursor = 0;
+    const all = [];
+    for (const items of groups) {
+      if (!items.length) continue;
+      let lo = Infinity, hi = -Infinity;
+      for (const item of items) {
+        const b = L3D.mesh.bounds([item.part.mesh]);
+        lo = Math.min(lo, item.x + b.min[0]);
+        hi = Math.max(hi, item.x + b.max[0]);
+      }
+      for (const item of items) item.x += cursor - lo;
+      cursor += hi - lo + 10;
+      all.push(...items);
+    }
+    for (const item of all) item.x -= (cursor - 10) / 2;
+    show(all);
   }
 
   function showOutput(warnings) {
@@ -897,7 +930,7 @@
     if (has && S.tiles) {
       el.tilesNote.textContent = `Split into ${S.tiles.list.length} tiles, ${S.tiles.cols} across and ${S.tiles.rows} down. The print buttons below each give a ZIP with a file per tile, named by row and column from the top left.`;
     }
-    const stand =has && S.frame ? S.frame.stand : null;
+    const stand = has && S.frame && S.frame.pieces.some(p => p.stand);
     el.exportStand.disabled = el.exportStand.hidden = el.standHowTo.hidden = !stand;
     el.stats.innerHTML = '';
     el.swapsBox.hidden = true;
@@ -963,9 +996,12 @@
     m.bodyRatio = body / L3D.mesh.volume(m.body);
     el.swapsEstimate.textContent = `About ${line(body)} in all.`;
     if (S.frame) {
-      const frame = E.plastic(S.frame.mesh);
-      const stand = S.frame.stand ? ` The stand adds about ${line(E.plastic(S.frame.stand))}.` : '';
-      el.frameEstimate.textContent = `About ${line(frame)}.${stand}`;
+      const pieces = S.frame.pieces, stands = pieces.filter(p => p.stand);
+      const frame = pieces.reduce((a, p) => a + E.plastic(p.mesh), 0);
+      const stand = stands.reduce((a, p) => a + E.plastic(p.stand), 0);
+      const what = pieces.length > 1 ? `The ${pieces.length} frames take` : 'About';
+      const stands_ = stands.length > 1 ? `The ${stands.length} stands add` : 'The stand adds';
+      el.frameEstimate.textContent = `${what} ${pieces.length > 1 ? 'about ' : ''}${line(frame)}.` + (stands.length ? ` ${stands_} about ${line(stand)}.` : '');
     }
   }
 
@@ -1006,11 +1042,13 @@
   });
   el.exportFrame.addEventListener('click', () => {
     if (!S.frame) return;
-    L3D.exporters.download(L3D.exporters.stl([S.frame.mesh]), S.name + '-frame.stl', 'model/stl');
+    if (S.frame.perTile) L3D.exporters.download(L3D.exporters.tilesZip(S.frame.pieces, S.name, 'frame'), S.name + '-tile-frames.zip', 'application/zip');
+    else L3D.exporters.download(L3D.exporters.stl([S.frame.mesh]), S.name + '-frame.stl', 'model/stl');
   });
   el.exportStand.addEventListener('click', () => {
-    if (!S.frame || !S.frame.stand) return;
-    L3D.exporters.download(L3D.exporters.stl([S.frame.stand]), S.name + '-stand.stl', 'model/stl');
+    if (!S.frame || !S.frame.pieces.some(p => p.stand)) return;
+    if (S.frame.perTile) L3D.exporters.download(L3D.exporters.tilesZip(S.frame.pieces, S.name, 'stand'), S.name + '-tile-stands.zip', 'application/zip');
+    else L3D.exporters.download(L3D.exporters.stl([S.frame.stand]), S.name + '-stand.stl', 'model/stl');
   });
   el.exportStl.addEventListener('click', () => {
     if (!S.model) return;
