@@ -175,6 +175,18 @@
         </label>
       </div>
 
+      <h3>Tiles</h3>
+      <label class="field check option-line"><input type="checkbox" id="tilesOn"> Split into tiles</label>
+      <div class="fields" data-tiles hidden>
+        <label class="field" title="Tiles across. Leave blank for as few as fit your bed.">Columns
+          <span class="unit"><input type="number" id="tileCols" min="1" max="10" step="1"></span>
+        </label>
+        <label class="field" title="Tiles down. Leave blank for as few as fit your bed.">Rows
+          <span class="unit"><input type="number" id="tileRows" min="1" max="10" step="1"></span>
+        </label>
+      </div>
+      <p class="muted small" data-tiles hidden>Cuts the print into pieces for printing one at a time, to make something bigger than your bed. Leave Columns and Rows blank for as few as fit your bed, with 5 mm spare on each side. Join the printed tiles with glue, or mount them on a backing.</p>
+
       <h3>Frame</h3>
       <label class="field check option-line"><input type="checkbox" id="frameOn"> Make a frame</label>
       <div class="fields" data-frame hidden>
@@ -235,6 +247,7 @@
 
     <div class="panel export-panel">
       <h2>Export</h2>
+      <p class="muted small" id="tilesNote" hidden></p>
       <div class="export-group">
         <h3>Multi-color printer</h3>
         <p class="muted small">For AMS, MMU and tool changers. Open the 3MF, or load all the STLs from the ZIP at once and choose “single object with multiple parts”. Then give each part its filament.</p>

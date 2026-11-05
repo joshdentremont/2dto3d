@@ -145,6 +145,20 @@ It only routes containers that opt in with `traefik.enable=true`.
      width, so the image gets a little smaller to make room. A border can be at most a quarter
      of that width. For multi-color printers it's a separate part named Border, and on a
      single extruder it takes its place in the filament-change list.
+   - **Tiles** (optional) cuts the print into pieces, to print one at a time and make something
+     bigger than your bed. Tick **Split into tiles**, and set **Columns** and **Rows**, up to
+     10 of each. Leave them blank for as few as fit your bed, with 5 mm spare on each side for
+     a brim. Set your bed size first. Cuts are straight lines at equal spacing, and neighbouring
+     tiles share exactly the same edges, so colors line up across a cut. Tiles with nothing in
+     them are left out. The whole design is cut, including any outline, border, base plate and
+     keychain loop, but not the frame.
+
+     The 3D view shows the tiles slightly apart, and the warnings check each tile against your
+     bed. Each print export then gives a ZIP with a file per tile, named by row and column
+     from the top left, so `logo-row1-col2` is the top row, second from the left. The
+     filament-change list and the filament figures are for the whole print. Tiles butt up
+     against each other with nothing holding them, so join them with glue or mount them on a
+     backing. The frame stays in one piece, so a frame for a large print may not fit your bed.
    - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
      print. A lip covers the print's edge from the front, and the print pushes into a recess
      from the back, face first. You set:

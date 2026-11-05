@@ -13,9 +13,11 @@
 
     // job: { gw, gh, scale, capped, borderMm, palette, settings }, plus image (RGBA pixels,
     // gw x gh) whenever they've changed. Returns { counts, shown, shownKey, warnings, model,
-    // frame, openEdges }. shown is the grid for the Mapped view, and shownKey changes when it
-    // does. model and frame are null if there's nothing to build. openEdges is null if the
-    // model is too big to check. All of it can be posted between threads.
+    // frame, tiles, openEdges }. shown is the grid for the Mapped view, and shownKey changes
+    // when it does. model and frame are null if there's nothing to build. tiles is null unless
+    // the print is being split, then { cols, rows, list: [{ row, col, offset, parts, body }] },
+    // with each tile centred on x/y = 0 and offset being where it sits in the whole print.
+    // openEdges is null if the model is too big to check. All of it can be posted between threads.
     function run(job) {
       const { gw, gh, scale, capped, borderMm, palette, settings: s } = job;
       if (job.image) {
@@ -38,7 +40,7 @@
       if (!palette.some(c => !c.none)) {
         return {
           counts: cache.counts, shown: { labels: cache.labels, W: gw, H: gh, ox: 0, oy: 0 }, shownKey: labelsKey,
-          warnings, model: null, frame: null, openEdges: null,
+          warnings, model: null, frame: null, tiles: null, openEdges: null,
         };
       }
 
@@ -169,6 +171,42 @@
         frame = { mesh: cache.frameMesh, stand, standLength, bumps: cache.frameBumps, depth: f.depth, lipDepth, printDepth };
       }
 
+      // Tiles: the same model again, cut up. The cut needs a trace of its own, as each tile
+      // has its own labels. One more label than the colours leaves room for a base plate's.
+      let tiles = null;
+      if (s.tiles.on && model.parts.length) {
+        const fg = cache.finalGrid;
+        const cols = s.tiles.cols || L3D.model.tilesFor(fg.W * scale, s.bedWidth);
+        const rows = s.tiles.rows || L3D.model.tilesFor(fg.H * scale, s.bedDepth);
+        const count = colors.length + 1;
+        tiles = { cols, rows, list: [] };
+        if (cols * rows > 1) {
+          const tileKey = [traceKey, cols, rows].join('|');
+          if (cache.tileKey !== tileKey) {
+            const cut = L3D.model.tileLabels(fg.labels, fg.W, fg.H, cols, rows, count);
+            cache.tileList = cut.tiles;
+            cache.tileTrace = L3D.contours.trace(cut.labels, fg.W, fg.H, { smooth: s.smooth });
+            cache.tileKey = tileKey;
+          }
+          const settings = {
+            mode: s.mode, thickness: s.thickness, layerHeight: s.layerHeight,
+            base: { type: s.base.type, thickness: s.base.thickness, colorIndex: baseIdx },
+          };
+          cache.tileList.forEach((t, k) => {
+            const graph = L3D.model.tileGraph(cache.tileTrace, k, count);
+            if (!graph) return;
+            const built = L3D.model.build(graph, colors, settings, scale);
+            if (!built.parts.length) return;
+            const x = ((t.x0 + t.x1) / 2 - fg.W / 2) * scale, y = (fg.H / 2 - (t.y0 + t.y1) / 2) * scale;
+            tiles.list.push({
+              row: t.row, col: t.col, offset: [x, y],
+              parts: built.parts.map(p => Object.assign({}, p, { mesh: L3D.model.moved(p.mesh, -x, -y) })),
+              body: L3D.model.moved(built.body, -x, -y),
+            });
+          });
+        }
+      }
+
       // Each part has to fit on its own: they're printed separately.
       const checkBed = (what, meshes) => {
         const b = L3D.mesh.bounds(meshes), w = b.max[0] - b.min[0], d = b.max[1] - b.min[1];
@@ -176,17 +214,27 @@
         if (fit === 'no') warnings.push(`The ${what} is ${w.toFixed(1)} × ${d.toFixed(1)} mm, too big for the ${s.bedWidth} × ${s.bedDepth} mm bed.`);
         else if (fit === 'turn') warnings.push(`The ${what} only fits the bed turned 90°, so rotate it in your slicer.`);
       };
-      if (model.parts.length) checkBed('print', model.parts.map(p => p.mesh));
+      if (tiles && tiles.list.length) {
+        const before = warnings.length;
+        // Tiles are nearly all one size, so one warning covers them.
+        for (const t of tiles.list) {
+          checkBed(`tile in row ${t.row + 1}, column ${t.col + 1}`, t.parts.map(p => p.mesh));
+          if (warnings.length > before) break;
+        }
+      } else if (model.parts.length) {
+        checkBed('print', model.parts.map(p => p.mesh));
+      }
       if (frame) checkBed('frame', [frame.mesh]);
       if (frame && frame.stand) checkBed('stand', [frame.stand]);
 
       let openEdges = null;
       if (model.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0) <= CHECK_LIMIT) {
         const meshes = model.parts.map(p => p.mesh).concat(model.body, frame ? frame.mesh : [], frame && frame.stand ? frame.stand : []);
+        if (tiles) for (const t of tiles.list) meshes.push(...t.parts.map(p => p.mesh), t.body);
         openEdges = meshes.reduce((a, mesh) => a + L3D.mesh.openEdges(mesh), 0);
       }
 
-      return { counts: cache.counts, shown: cache.finalGrid, shownKey: traceKey, warnings, model, frame, openEdges };
+      return { counts: cache.counts, shown: cache.finalGrid, shownKey: traceKey, warnings, model, frame, tiles, openEdges };
     }
 
     return { run };

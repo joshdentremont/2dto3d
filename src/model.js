@@ -126,6 +126,57 @@
     return { labels: out, W: NW, H: NH, ox: pad, oy: pad };
   }
 
+  // Tiles along a side `size` mm long, to fit a bed `bed` mm long with room for a brim, at most
+  // MAX_TILES.
+  const MAX_TILES = 10;
+  const TILE_MARGIN = 5;
+  function tilesFor(size, bed) {
+    return Math.min(MAX_TILES, Math.max(1, Math.ceil(size / Math.max(bed - 2 * TILE_MARGIN, 1) - 1e-9)));
+  }
+
+  // Cuts a grid into cols x rows tiles by giving each tile its own run of labels, so that a
+  // single trace shares every edge between neighbouring tiles. A label l becomes
+  // l + count * tile, where count is more than any label. Returns { labels, tiles: [{ row, col,
+  // x0, x1, y0, y1 }] } with tiles numbered row by row from the top left, in grid pixels.
+  function tileLabels(labels, W, H, cols, rows, count) {
+    const edge = (k, n, size) => Math.round(k * size / n);
+    const tiles = [];
+    const out = new Int16Array(W * H).fill(-1);
+    for (let row = 0; row < rows; row++) {
+      const y0 = edge(row, rows, H), y1 = edge(row + 1, rows, H);
+      for (let col = 0; col < cols; col++) {
+        const x0 = edge(col, cols, W), x1 = edge(col + 1, cols, W), tile = tiles.length;
+        tiles.push({ row, col, x0, x1, y0, y1 });
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const l = labels[y * W + x];
+            if (l >= 0) out[y * W + x] = l + count * tile;
+          }
+        }
+      }
+    }
+    return { labels: out, tiles };
+  }
+
+  // The trace of a tiled grid as seen by one tile, with its labels back to what they were and
+  // everything else counting as empty, ready for build. Returns null if the tile is empty.
+  function tileGraph(g, tile, count) {
+    const own = l => (l >= 0 && Math.floor(l / count) === tile ? l % count : -1);
+    const polys = new Map();
+    for (const [l, list] of g.polys) if (own(l) >= 0) polys.set(own(l), list);
+    if (!polys.size) return null;
+    const chains = g.chains.filter(c => own(c.left) >= 0 || own(c.right) >= 0)
+      .map(c => Object.assign({}, c, { left: own(c.left), right: own(c.right) }));
+    return Object.assign({}, g, { polys, chains });
+  }
+
+  // A copy of a mesh moved by (dx, dy) mm.
+  function moved(mesh, dx, dy) {
+    const positions = Float32Array.from(mesh.positions);
+    for (let k = 0; k < positions.length; k += 3) { positions[k] += dx; positions[k + 1] += dy; }
+    return { positions, indices: mesh.indices };
+  }
+
   // Whether a w x d part fits a bedW x bedD bed: 'fits', 'turn' (only if turned 90 degrees) or
   // 'no'.
   function fitsBed(w, d, bedW, bedD) {
@@ -216,5 +267,5 @@
     return { parts, body, zTop, z0, swaps, warnings };
   }
 
-  L3D.model = { traceLabels, gridSize, addSquare, addOutline, addBorder, outlineGrowth, maxCornerRadius, fitsBed, build };
+  L3D.model = { traceLabels, gridSize, addSquare, addOutline, addBorder, tilesFor, tileLabels, tileGraph, moved, outlineGrowth, maxCornerRadius, fitsBed, build };
 })(globalThis.L3D = globalThis.L3D || {});

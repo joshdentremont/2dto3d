@@ -91,6 +91,25 @@
     return fflate.zipSync(files, { level: 6 });
   }
 
+  // ZIP with one file per tile, named by row and column. kind: '3mf', 'stl' for one body per
+  // tile, or 'parts' for a folder per tile with an STL per colour.
+  function tilesZip(tiles, baseName, kind) {
+    const files = {};
+    for (const t of tiles) {
+      const name = `${baseName}-row${t.row + 1}-col${t.col + 1}`;
+      if (kind === '3mf') {
+        files[name + '.3mf'] = [threeMF(t.parts, name), { level: 0 }];
+      } else if (kind === 'stl') {
+        files[name + '.stl'] = stl([t.body]);
+      } else {
+        t.parts.forEach((part, k) => {
+          files[`${name}/${name}-${String(k + 1).padStart(2, '0')}-${safeName(part.name)}.stl`] = stl([part.mesh]);
+        });
+      }
+    }
+    return fflate.zipSync(files, { level: 6 });
+  }
+
   function safeName(s) {
     return String(s).trim().replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '') || 'part';
   }
@@ -106,5 +125,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
-  L3D.exporters = { stl, threeMF, stlZip, download, safeName };
+  L3D.exporters = { stl, threeMF, stlZip, tilesZip, download, safeName };
 })(globalThis.L3D = globalThis.L3D || {});

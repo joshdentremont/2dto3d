@@ -670,6 +670,7 @@
         loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
         outline: { shape: 'none', radius: 5, colorId: null },
         border: { on: false, width: 2, height: 3, colorId: 2 },
+        tiles: { on: false, cols: 0, rows: 0 },
         frame: {
           on: true, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, pocket: false, head: 5, pocketDepth: 0,
           outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 12, standLength: 0,
@@ -778,6 +779,7 @@
         mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: true, speckMm2: 0, bedWidth: 256, bedDepth: 256,
         base: { type: 'none', thickness: 1, colorId: null }, loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
         outline: { shape, square, radius: 5, colorId: 2 }, border: { on: false, width: 2, height: 3, colorId: null }, frame: { on: false },
+        tiles: { on: false, cols: 0, rows: 0 },
       });
       const build = (shape, square, colorId) => {
         const s = settings(shape, square);
@@ -832,6 +834,104 @@
       // Nothing to go around.
       const empty = add(new Int16Array(16).fill(-1), 4, 4, 5, 2);
       if (empty.labels.includes(5)) res.errors.push('band around nothing');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
+    // Tiles.
+    {
+      const res = { name: 'tiles', errors: [] };
+      const M = L3D.model, E = L3D.mesh;
+      if (M.tilesFor(100, 256) !== 1 || M.tilesFor(246, 256) !== 1 || M.tilesFor(247, 256) !== 2 || M.tilesFor(500, 256) !== 3) res.errors.push('tilesFor');
+      if (M.tilesFor(100000, 256) !== 10) res.errors.push('tilesFor has no limit');
+
+      // Three colours and a curved edge crossing every cut: left half red, right half blue,
+      // with a green disc in the middle where the cuts meet.
+      const gw = 90, gh = 60, image = new Uint8ClampedArray(gw * gh * 4);
+      for (let y = 0; y < gh; y++) {
+        for (let x = 0; x < gw; x++) {
+          const disc = Math.hypot(x + 0.5 - 45, y + 0.5 - 30) < 18;
+          image.set(disc ? [0, 255, 0, 255] : x < 45 ? [255, 0, 0, 255] : [0, 0, 255, 255], (y * gw + x) * 4);
+        }
+      }
+      const palette = [['Red', [255, 0, 0]], ['Blue', [0, 0, 255]], ['Green', [0, 255, 0]]].map(([name, rgb], k) => (
+        { id: k + 1, rgb, filament: L3D.color.rgbToHex(rgb), name, none: false, height: k + 1 }));
+      const settings = over => Object.assign({
+        mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: true, speckMm2: 0, bedWidth: 256, bedDepth: 256,
+        base: { type: 'none', thickness: 1, colorId: null }, loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+        outline: { shape: 'none', square: false, radius: 5, colorId: null }, border: { on: false, width: 2, height: 3, colorId: null },
+        frame: { on: false }, tiles: { on: true, cols: 2, rows: 2 },
+      }, over);
+      const run = s => L3D.pipeline.create().run({ gw, gh, scale: 1, capped: false, borderMm: 0, palette, settings: settings(s), image });
+      const r = run({});
+      if (!r.tiles || r.tiles.list.length !== 4) res.errors.push(`${r.tiles && r.tiles.list.length} tiles`);
+      if (r.openEdges !== 0) res.errors.push(`${r.openEdges} open edges`);
+
+      // Everything is there: the tiles add up to the whole print, colour by colour.
+      for (const c of ['Red', 'Blue', 'Green']) {
+        const whole = E.volume(r.model.parts.find(p => p.name === c).mesh);
+        const sum = r.tiles.list.reduce((a, t) => a + t.parts.filter(p => p.name === c).reduce((v, p) => v + E.volume(p.mesh), 0), 0);
+        if (!close(sum, whole, 0.02)) res.errors.push(`${c}: tiles ${sum}, whole ${whole}`);
+      }
+      const sumBody = r.tiles.list.reduce((a, t) => a + E.volume(t.body), 0);
+      if (!close(sumBody, 90 * 60 * 2, 0.01)) res.errors.push(`bodies add up to ${sumBody}`);
+
+      // Each tile is centred, and its offset puts it back in place. Row 1 is at the top.
+      for (const t of r.tiles.list) {
+        const b = E.bounds([t.body]);
+        if (!close(b.max[0] - b.min[0], 45, 0.02) || !close(b.max[1] - b.min[1], 30, 0.02)) res.errors.push(`tile ${t.row},${t.col} is ${b.max[0] - b.min[0]} x ${b.max[1] - b.min[1]}`);
+        if (Math.abs(b.max[0] + b.min[0]) > 0.5 || Math.abs(b.max[1] + b.min[1]) > 0.5) res.errors.push(`tile ${t.row},${t.col} is not centred`);
+        if (!close(t.offset[0], (t.col - 0.5) * 45) || !close(t.offset[1], (0.5 - t.row) * 30)) res.errors.push(`tile ${t.row},${t.col} offset ${t.offset}`);
+      }
+      const named = (t, name) => t.parts.some(p => p.name === name);
+      for (const t of r.tiles.list) if (named(t, t.col ? 'Red' : 'Blue')) res.errors.push(`tile ${t.row},${t.col} has the wrong side's color`);
+
+      // Neighbouring tiles' cut faces match: the same points along the cut.
+      const onCut = (t, x) => {
+        const p = t.body.positions, set = new Set();
+        for (let k = 0; k < p.length; k += 3) {
+          if (Math.abs(p[k] + t.offset[0] - x) < 1e-3) set.add((p[k + 1] + t.offset[1]).toFixed(3));
+        }
+        return Array.from(set).sort().join();
+      };
+      const topLeft = r.tiles.list.find(t => !t.row && !t.col), topRight = r.tiles.list.find(t => !t.row && t.col);
+      if (!onCut(topLeft, 0) || onCut(topLeft, 0) !== onCut(topRight, 0)) res.errors.push('cut faces differ');
+
+      // Tiling doesn't disturb the rest: filament list, whole model and the Mapped view.
+      const plain = run({ tiles: { on: false, cols: 0, rows: 0 } });
+      if (plain.tiles !== null || !close(E.volume(plain.model.body), E.volume(r.model.body))) res.errors.push('tiles changed the whole model');
+      if (plain.shownKey !== r.shownKey) res.errors.push('tiles changed the Mapped view');
+
+      // Blank counts fit the bed; one tile that fits means no split.
+      const auto = run({ tiles: { on: true, cols: 0, rows: 0 }, bedWidth: 60, bedDepth: 60 });
+      if (auto.tiles.cols !== 2 || auto.tiles.rows !== 2 || auto.tiles.list.length !== 4) res.errors.push(`auto ${auto.tiles.cols} x ${auto.tiles.rows}`);
+      if (auto.warnings.length) res.errors.push(`auto warnings: ${auto.warnings}`);
+      const fits = run({ tiles: { on: true, cols: 0, rows: 0 } });
+      if (fits.tiles.cols !== 1 || fits.tiles.list.length) res.errors.push('split a print that fits');
+
+      // Too few tiles to fit: one warning, about a tile, not the whole print.
+      const few = run({ tiles: { on: true, cols: 2, rows: 1 }, bedWidth: 40, bedDepth: 40 });
+      if (few.warnings.length !== 1 || !few.warnings[0].includes('tile in row 1')) res.errors.push(`too few: ${few.warnings}`);
+
+      // Everything else still gets cut, and stays closed: base plates, heights, borders.
+      const base = run({ base: { type: 'shape', thickness: 1, colorId: 1 } });
+      if (base.openEdges !== 0 || !base.tiles.list.every(t => named(t, 'Base'))) res.errors.push(`base: ${base.openEdges}`);
+      const rect = run({ base: { type: 'rect', thickness: 1, colorId: 1 } });
+      if (rect.openEdges !== 0) res.errors.push(`rectangular base: ${rect.openEdges}`);
+      const layered = run({ mode: 'layered' });
+      if (layered.openEdges !== 0 || !close(layered.tiles.list.reduce((a, t) => a + E.volume(t.body), 0), E.volume(layered.model.body), 0.02)) res.errors.push('layered tiles');
+
+      // Empty tiles are left out, and a split that leaves one tile is no split.
+      const half = new Uint8ClampedArray(gw * gh * 4);
+      for (let i = 0; i < gw * gh; i++) if (i % gw < 40) half.set([255, 0, 0, 255], i * 4);
+      const left = L3D.pipeline.create().run({ gw, gh, scale: 1, capped: false, borderMm: 0, palette, settings: settings({ tiles: { on: true, cols: 2, rows: 1 } }), image: half });
+      if (left.tiles.list.length !== 1 || left.openEdges !== 0) res.errors.push(`half image: ${left.tiles.list.length} tiles`);
+
+      // Exports: a file per tile, in each kind.
+      const names = kind => Object.keys(fflate.unzipSync(L3D.exporters.tilesZip(r.tiles.list, 'logo', kind)));
+      if (names('3mf').length !== 4 || !names('3mf').includes('logo-row1-col2.3mf')) res.errors.push(`3MF names ${names('3mf')}`);
+      if (names('stl').length !== 4 || !names('stl').includes('logo-row2-col1.stl')) res.errors.push(`STL names ${names('stl')}`);
+      if (!names('parts').some(n => /^logo-row1-col1\/logo-row1-col1-01-.*\.stl$/.test(n))) res.errors.push(`part names ${names('parts').slice(0, 3)}`);
       res.ok = res.errors.length === 0;
       results.push(res);
     }
