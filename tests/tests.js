@@ -928,7 +928,7 @@
       if (left.tiles.list.length !== 1 || left.openEdges !== 0) res.errors.push(`half image: ${left.tiles.list.length} tiles`);
 
       // A frame per tile: one each, shaped around that tile and centred on it, all closed.
-      const frameOn = { on: true, perTile: true, border: 7, lip: 1, depth: 8, lipDepth: 6, clearance: 0.3, pocket: true, head: 3, pocketDepth: 0,
+      const frameOn = { on: true, perTile: true, tileTrim: 0, border: 7, lip: 1, depth: 8, lipDepth: 6, clearance: 0.3, pocket: true, head: 3, pocketDepth: 0,
         outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 12, standLength: 0 };
       const framed = run({ frame: frameOn });
       const pieces = framed.frame.pieces;
@@ -955,6 +955,38 @@
       // Frames too big for the bed: one warning, naming a tile.
       const small = run({ frame: frameOn, bedWidth: 50, bedDepth: 50 });
       if (small.warnings.filter(w => w.includes('frame for the tile')).length !== 1) res.errors.push(`frame bed warnings: ${small.warnings}`);
+      // Trim at inner edges: a strip goes from each edge where tiles meet, and nothing from
+      // the outside.
+      const tileSize = t => { const b = E.bounds([t.body]); return [b.max[0] - b.min[0], b.max[1] - b.min[1]]; };
+      const trimmed = (trim, over) => run(Object.assign({ frame: Object.assign({}, frameOn, { tileTrim: trim }) }, over));
+      const zero = trimmed(0);
+      if (zero.tiles.trim !== 0 || tileSize(zero.tiles.list[0])[0] < 44.9) res.errors.push(`no trim: ${zero.tiles.trim}, ${tileSize(zero.tiles.list[0])}`);
+      const five = trimmed(5);
+      if (five.tiles.trim !== 5 || five.openEdges !== 0) res.errors.push(`5 mm trim: ${five.tiles.trim}, ${five.openEdges} open edges`);
+      for (const t of five.tiles.list) {
+        // Each tile loses 5 mm on its one inner side across and its one inner side down.
+        const [w, h] = tileSize(t);
+        if (Math.abs(w - 40) > 0.5 || Math.abs(h - 25) > 0.5) res.errors.push(`5 mm trim: tile ${t.row},${t.col} is ${w} x ${h}`);
+      }
+      // Its centre moves away from the cut, so the outside edges stay where they were.
+      const tl = five.tiles.list.find(t => !t.row && !t.col);
+      if (!close(tl.offset[0], -25) || !close(tl.offset[1], 17.5)) res.errors.push(`trimmed top left tile at ${tl.offset}`);
+      // Blank is border + clearance + half the 10 mm gap: 8.3 mm with a 3 mm border, to whole
+      // pixels. Two tiles side by side leave room for it.
+      const blank = trimmed(null, { tiles: { on: true, cols: 2, rows: 1 }, frame: Object.assign({}, frameOn, { border: 3, tileTrim: null }) });
+      if (!close(blank.tiles.trim, 8) || blank.warnings.some(w => w.includes('trim'))) res.errors.push(`blank trim ${blank.tiles.trim}, ${blank.warnings}`);
+      // A 2 mm gap between frames: 3.3 + 1 = 4.3 mm, to whole pixels.
+      const nearer = trimmed(null, { tiles: { on: true, cols: 2, rows: 1 }, frame: Object.assign({}, frameOn, { border: 3, tileTrim: null, tileGap: 2 }) });
+      if (!close(nearer.tiles.trim, 4)) res.errors.push(`blank trim with a 2 mm gap ${nearer.tiles.trim}`);
+      // Frames follow their trimmed tiles, and too much is limited, with a warning.
+      const fw = E.bounds([five.frame.pieces[0].mesh]);
+      if (Math.abs(fw.max[0] - fw.min[0] - 54.6) > 1) res.errors.push(`trimmed tile's frame is ${fw.max[0] - fw.min[0]} wide`);
+      const most = trimmed(40);
+      if (most.tiles.trim !== 7 || !most.warnings.some(w => w.includes('trim'))) res.errors.push(`40 mm trim: ${most.tiles.trim}, ${most.warnings}`);
+      // Only tiles with their own frames are trimmed.
+      if (trimmed(5, { frame: Object.assign({}, frameOn, { perTile: false, tileTrim: 5 }) }).tiles.trim !== 0) res.errors.push('trimmed tiles with one frame');
+      if (run({}).tiles.trim !== 0) res.errors.push('trimmed tiles with no frame');
+
       // Exports, named like the tiles.
       const frameNames = kind => Object.keys(fflate.unzipSync(L3D.exporters.tilesZip(pieces, 'logo', kind))).sort().join();
       if (frameNames('frame') !== 'logo-row1-col1-frame.stl,logo-row1-col2-frame.stl,logo-row2-col1-frame.stl,logo-row2-col2-frame.stl') res.errors.push(`frame names ${frameNames('frame')}`);

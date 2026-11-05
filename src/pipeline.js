@@ -5,6 +5,7 @@
 
   const MIN_FRAME_LIP = 0.4;    // thinnest lip (mm) left at the front of a frame
   const CHECK_LIMIT = 1500000;  // skip the watertight check above this many triangles
+  const TILE_GAP = 10;          // space (mm) between tiles in the 3D view, and between frames unless set
 
   // A pipeline remembers its results and only redoes the steps whose inputs have changed.
   function create() {
@@ -15,7 +16,8 @@
     // gw x gh) whenever they've changed. Returns { counts, shown, shownKey, warnings, model,
     // frame, tiles, openEdges }. shown is the grid for the Mapped view, and shownKey changes
     // when it does. model and frame are null if there's nothing to build. tiles is null unless
-    // the print is being split, then { cols, rows, list: [{ row, col, offset, parts, body }] },
+    // the print is being split, then { cols, rows, trim, list: [{ row, col, offset, parts, body }] },
+    // where trim is how much (mm) was cut away along each edge where two tiles meet,
     // with each tile centred on x/y = 0 and offset being where it sits in the whole print.
     // frame.pieces lists the frames as { row, col, mesh, stand }: one, or one per tile when
     // frame.perTile, each centred like its tile. frame.mesh and frame.stand are the one frame's,
@@ -118,11 +120,23 @@
         const cols = s.tiles.cols || L3D.model.tilesFor(fg.W * scale, s.bedWidth);
         const rows = s.tiles.rows || L3D.model.tilesFor(fg.H * scale, s.bedDepth);
         const count = colors.length + 1;
-        tiles = { cols, rows, list: [] };
+        // Tiles with their own frames can lose a strip of image along the edges where they
+        // meet, for what the frames cover between them. Unless set, that's the frames' border
+        // and clearance, and half the gap they'll hang apart. It keeps a tile at least half as
+        // wide as it was.
+        let trim = 0;
+        if (s.frame.on && s.frame.perTile && cols * rows > 1) {
+          const f = s.frame, gap = f.tileGap != null ? f.tileGap : TILE_GAP;
+          const asked = f.tileTrim != null ? f.tileTrim : f.border + f.clearance + gap / 2;
+          const most = Math.floor(Math.min(fg.W / cols, fg.H / rows) / 4);
+          trim = Math.min(Math.round(asked / scale), most);
+          if (trim < Math.round(asked / scale)) warnings.push(`The trim at the tiles' inner edges was limited to ${(trim * scale).toFixed(1)} mm, to keep the tiles at least half their size.`);
+        }
+        tiles = { cols, rows, trim: trim * scale, list: [] };
         if (cols * rows > 1) {
-          const tileKey = [traceKey, cols, rows].join('|');
+          const tileKey = [traceKey, cols, rows, trim].join('|');
           if (cache.tileKey !== tileKey) {
-            const cut = L3D.model.tileLabels(fg.labels, fg.W, fg.H, cols, rows, count);
+            const cut = L3D.model.tileLabels(fg.labels, fg.W, fg.H, cols, rows, count, trim);
             cache.tileList = cut.tiles;
             cache.tileTrace = L3D.contours.trace(cut.labels, fg.W, fg.H, { smooth: s.smooth });
             cache.tileKey = tileKey;
@@ -277,5 +291,5 @@
     return { run };
   }
 
-  L3D.pipeline = { create };
+  L3D.pipeline = { create, TILE_GAP };
 })(globalThis.L3D = globalThis.L3D || {});

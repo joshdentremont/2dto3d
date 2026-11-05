@@ -217,6 +217,15 @@
       </div>
       <label class="field check option-line" data-frame-tiles hidden><input type="checkbox" id="framePerTile"> One frame per tile</label>
       <p class="muted small" data-frame-tiles hidden>Gives each tile its own frame, shaped around that tile, so the tiles can hang or stand side by side. Leave it off for one frame around the whole print. The pocket, bumps and stand go on every frame.</p>
+      <div class="fields" data-frame-trim hidden>
+        <label class="field" title="Image cut away along each edge where two tiles meet. Leave blank for what the frames cover between tiles hung the gap below apart. 0 for none.">Trim at inner edges
+          <span class="unit"><input type="number" id="frameTileTrim" min="0" step="0.5"> mm</span>
+        </label>
+        <label class="field" title="How far apart you'll hang the framed tiles. Used for the Assembled view and the trim.">Gap between frames
+          <span class="unit"><input type="number" id="frameTileGap" min="0" step="1" value="10"> mm</span>
+        </label>
+      </div>
+      <p class="muted small" data-frame-trim hidden>The frames between two tiles hide part of the picture, so without a trim it looks stretched across them. This cuts that much image away from each tile wherever it meets another, so the picture lines up across the frames. Set the gap you'll hang the frames apart, which the Assembled view shows, and leave the trim blank for what the frames cover: their border and fit clearance plus half the gap.</p>
       <p class="muted small" data-frame hidden>A separate part that follows the shape of your print. Its lip covers the edge of the print from the front, and the print pushes in from the back, face first. Lip depth is measured from the back of the frame, so frame depth minus lip depth is how far the print sits behind the front. If the lip depth leaves room, small bumps behind the print hold it in without glue.</p>
       <label class="field check option-line" data-frame hidden><input type="checkbox" id="framePocket"> Hanging pocket</label>
       <div class="fields" data-frame-pocket hidden>

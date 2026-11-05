@@ -136,16 +136,19 @@
 
   // Cuts a grid into cols x rows tiles by giving each tile its own run of labels, so that a
   // single trace shares every edge between neighbouring tiles. A label l becomes
-  // l + count * tile, where count is more than any label. Returns { labels, tiles: [{ row, col,
+  // l + count * tile, where count is more than any label. trim pixels are left out along every
+  // edge where two tiles meet, and none along the outside. Returns { labels, tiles: [{ row, col,
   // x0, x1, y0, y1 }] } with tiles numbered row by row from the top left, in grid pixels.
-  function tileLabels(labels, W, H, cols, rows, count) {
+  function tileLabels(labels, W, H, cols, rows, count, trim) {
+    const t = trim || 0;
     const edge = (k, n, size) => Math.round(k * size / n);
     const tiles = [];
     const out = new Int16Array(W * H).fill(-1);
     for (let row = 0; row < rows; row++) {
-      const y0 = edge(row, rows, H), y1 = edge(row + 1, rows, H);
+      const y0 = edge(row, rows, H) + (row > 0 ? t : 0), y1 = edge(row + 1, rows, H) - (row < rows - 1 ? t : 0);
       for (let col = 0; col < cols; col++) {
-        const x0 = edge(col, cols, W), x1 = edge(col + 1, cols, W), tile = tiles.length;
+        const x0 = edge(col, cols, W) + (col > 0 ? t : 0), x1 = edge(col + 1, cols, W) - (col < cols - 1 ? t : 0);
+        const tile = tiles.length;
         tiles.push({ row, col, x0, x1, y0, y1 });
         for (let y = y0; y < y1; y++) {
           for (let x = x0; x < x1; x++) {

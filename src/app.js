@@ -6,7 +6,7 @@
   const MAX_ORIGINAL = 2048;    // longest side kept for display and picking
   const SAME_COLOR_DE = 3;      // picks closer than this (CIELAB ΔE) select the existing colour
   const MIN_CROP = 4;           // smallest crop drag (CSS pixels); anything less is a click
-  const TILE_GAP = 10;          // space (mm) shown between tiles in the 3D view
+  const TILE_GAP = L3D.pipeline.TILE_GAP; // space (mm) shown between tiles in the 3D view
   const PICK_HINT = 'Click the image to add each color you want in the model. Every pixel uses the closest picked color.';
 
   const $ = id => document.getElementById(id);
@@ -23,7 +23,7 @@
     borderOn: $('borderOn'), borderWidth: $('borderWidth'), borderHeight: $('borderHeight'), borderColor: $('borderColor'),
     loopOn: $('loopOn'), loopSide: $('loopSide'), loopOuter: $('loopOuter'), loopHole: $('loopHole'), loopColor: $('loopColor'),
     tilesOn: $('tilesOn'), tileCols: $('tileCols'), tileRows: $('tileRows'), tilesNote: $('tilesNote'),
-    frameOn: $('frameOn'), framePerTile: $('framePerTile'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
+    frameOn: $('frameOn'), framePerTile: $('framePerTile'), frameTileTrim: $('frameTileTrim'), frameTileGap: $('frameTileGap'), frameBorder: $('frameBorder'), frameLip: $('frameLip'),
     frameDepth: $('frameDepth'), frameLipDepth: $('frameLipDepth'), frameClearance: $('frameClearance'), frameColor: $('frameColor'),
     frameExport: $('frameExport'), exportFrame: $('exportFrame'), framePocket: $('framePocket'), frameHead: $('frameHead'),
     framePocketDepth: $('framePocketDepth'), frameOuterRadius: $('frameOuterRadius'), frameInnerRadius: $('frameInnerRadius'),
@@ -60,7 +60,7 @@
       border: { on: false, width: 2, height: 3, colorId: null },
       tiles: { on: false, cols: 0, rows: 0 }, // 0 = as few as fit the bed
       frame: {
-        on: false, perTile: false, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
+        on: false, perTile: false, tileTrim: null, tileGap: 10, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
         pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
       },
     },
@@ -534,6 +534,9 @@
     s.tiles.rows = Math.min(10, Math.max(0, Math.round(+el.tileRows.value) || 0));
     s.frame.on = el.frameOn.checked;
     s.frame.perTile = el.framePerTile.checked;
+    // Blank = what the frames cover between tiles; 0 is a real value, for no trim.
+    s.frame.tileTrim = el.frameTileTrim.value.trim() === '' ? null : Math.max(0, +el.frameTileTrim.value || 0);
+    s.frame.tileGap = el.frameTileGap.value.trim() === '' ? TILE_GAP : Math.max(0, +el.frameTileGap.value || 0);
     s.frame.border = Math.max(1, +el.frameBorder.value || 10);
     s.frame.lip = Math.max(0.5, +el.frameLip.value || 1);
     s.frame.depth = Math.max(1, +el.frameDepth.value || 15);
@@ -566,6 +569,9 @@
     document.querySelectorAll('[data-frame-pocket]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.pocket); });
     document.querySelectorAll('[data-frame-stand]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.frame.stand); });
     document.querySelectorAll('[data-frame-tiles]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.tiles.on); });
+    document.querySelectorAll('[data-frame-trim]').forEach(n => { n.hidden = !(S.settings.frame.on && S.settings.tiles.on && S.settings.frame.perTile); });
+    const f = S.settings.frame;
+    el.frameTileTrim.placeholder = String(Math.round((f.border + f.clearance + f.tileGap / 2) * 10) / 10);
     const outline = [S.settings.outline.shape, S.settings.outline.square ? 'square' : ''];
     document.querySelectorAll('[data-outline]').forEach(n => { n.hidden = !n.dataset.outline.split(' ').some(v => outline.includes(v)); });
     el.singleOn.hidden = mode !== 'layered';
@@ -582,7 +588,7 @@
   const settingInputs = [el.thickness, el.layerHeight, el.widthMm, el.detail, el.speck, el.smooth, el.bedWidth, el.bedDepth,
     el.baseType, el.baseThickness, el.outlineShape, el.outlineSquare, el.cornerRadius, el.outlineColor, el.borderOn, el.borderWidth, el.borderHeight, el.borderColor, el.baseColor, el.loopOn, el.loopSide, el.loopOuter, el.loopHole, el.loopColor,
     el.tilesOn, el.tileCols, el.tileRows,
-    el.frameOn, el.framePerTile, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
+    el.frameOn, el.framePerTile, el.frameTileTrim, el.frameTileGap, el.frameBorder, el.frameLip, el.frameDepth, el.frameLipDepth, el.frameClearance, el.frameColor,
     el.framePocket, el.frameHead, el.framePocketDepth, el.frameOuterRadius, el.frameInnerRadius, el.frameStand, el.frameStandAngle, el.frameStandWidth, el.frameStandLength];
   for (const input of settingInputs) {
     input.addEventListener(input.tagName === 'SELECT' || input.type === 'checkbox' ? 'change' : 'input', () => {
@@ -853,7 +859,7 @@
   // separately, so a row running off the bed doesn't mean any part won't fit.) Tiles are shown
   // spread apart, and their frames in the same grid. Assembled shows the print in its frame,
   // as it will look finished, without stands, as the frame is lying on its back: tiles with
-  // their own frames sit with the frames 10 mm apart, as in side by side.
+  // their own frames sit with the frames the chosen gap apart, as they'll hang.
   function showParts() {
     const frame = S.frame, tiles = S.tiles, f = S.settings.frame, color = f.color;
     // Where a tile, or its frame, goes: its place in the whole print, spread out by `gap`.
@@ -870,8 +876,9 @@
     const show = items => viewer.setParts(items.map(({ part, x, y, z, turned }) => Object.assign({}, part, { offset: [x, y, z || 0], turned })));
     if (!frame) { show(print(TILE_GAP)); return; }
 
-    // A tile's frame reaches this far past it on each side.
-    const reach = f.border + f.clearance;
+    // A tile's frame reaches this far past it on each side. Trimmed tiles are already apart
+    // by twice the trim, so that comes off the gaps.
+    const reach = f.border + f.clearance, cut = tiles ? 2 * tiles.trim : 0;
     const offsetOf = p => tiles.list.find(t => t.row === p.row && t.col === p.col).offset;
     const frameAt = (p, gap) => (frame.perTile ? spread({ row: p.row, col: p.col, offset: offsetOf(p) }, gap) : [0, 0]);
     const asFrame = (p, gap) => {
@@ -881,7 +888,7 @@
 
     if (S.frameView === 'assembled') {
       const at = L3D.frame.assembled(frame.depth, frame.lipDepth, frame.printDepth);
-      const gap = TILE_GAP + 2 * reach;
+      const gap = (frame.perTile ? f.tileGap : 0) + 2 * reach - cut;
       const inside = frame.perTile ? print(gap) : S.model.parts.map(part => ({ part, x: 0, y: 0 }));
       show(inside.map(item => Object.assign(item, { z: at.printZ })).concat(
         frame.pieces.map(p => Object.assign(asFrame(p, gap), { z: at.frameZ, turned: true }))));
@@ -891,8 +898,8 @@
     const stands = frame.pieces.filter(p => p.stand);
     const standDepth = stands.length ? L3D.mesh.bounds([stands[0].stand]).max[1] : 0;
     const groups = [
-      print(TILE_GAP),
-      frame.pieces.map(p => asFrame(p, TILE_GAP + 2 * reach)),
+      print(TILE_GAP - cut),
+      frame.pieces.map(p => asFrame(p, TILE_GAP + 2 * reach - cut)),
       stands.map((p, k) => ({ part: { name: 'Stand', color, mesh: p.stand }, x: 0, y: -k * (standDepth + 10) })),
     ];
     // Lines the groups up left to right, then centres the lot on the bed.

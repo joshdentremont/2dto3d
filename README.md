@@ -162,8 +162,15 @@ It only routes containers that opt in with `traefik.enable=true`.
      not fit your bed. Tick **One frame per tile**, under Frame, to give each tile a frame of
      its own instead, shaped around that tile, with the same settings, hanging pocket, bumps
      and stand. **Frame (.stl)** and **Stand (.stl)** then give a ZIP with a file per tile,
-     named like the tiles, and **Assembled** shows the framed tiles side by side, frames
-     10 mm apart.
+     named like the tiles, and **Assembled** shows the framed tiles side by side, the **Gap
+     between frames** apart (default 10 mm): set it to how far apart you'll hang them.
+
+     The frames between two tiles hide part of the picture, so the picture looks stretched
+     across them. **Trim at inner edges** fixes that by cutting a strip of image away from
+     each tile wherever it meets another, leaving the outside edges alone. Leave it blank for
+     what the frames cover: the border and fit clearance, plus half the gap between frames
+     (15.3 mm with the default frame and gap). 0 means no trim. The trim is limited so tiles
+     keep at least half their size, with a warning if it is.
    - **Frame** (optional) makes a separate front-lip frame that follows the shape of your
      print. A lip covers the print's edge from the front, and the print pushes into a recess
      from the back, face first. You set:
