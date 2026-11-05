@@ -177,8 +177,8 @@ It only routes containers that opt in with `traefik.enable=true`.
      - **Border width**: how wide the frame is outside the print (default 10 mm);
      - **Lip overlap**: how far the lip reaches over the print's edge (default 1 mm);
      - **Frame depth**: the frame's total depth, front to back (default 15 mm);
-     - **Lip depth**: from the back of the frame to the lip (default 13 mm). Frame depth minus
-       lip depth is how far the print sits behind the front of the frame (2 mm by default);
+     - **Lip depth**: from the back of the frame to the lip (default 10 mm). Frame depth minus
+       lip depth is how far the print sits behind the front of the frame (5 mm by default);
      - **Outer edge radius**: rounds the outside edge of the frame's front (default 1 mm; 0
        gives a square edge). It's built from 0.2 mm steps, matching a typical layer height;
      - **Inner edge radius**: rounds the front edge of the opening in the same way (default

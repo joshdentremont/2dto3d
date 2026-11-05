@@ -60,7 +60,7 @@
       border: { on: false, width: 2, height: 3, colorId: null },
       tiles: { on: false, cols: 0, rows: 0 }, // 0 = as few as fit the bed
       frame: {
-        on: false, perTile: false, tileTrim: null, tileGap: 10, border: 10, lip: 1, depth: 15, lipDepth: 13, clearance: 0.3, color: '#3A3A3A',
+        on: false, perTile: false, tileTrim: null, tileGap: 10, border: 10, lip: 1, depth: 15, lipDepth: 10, clearance: 0.3, color: '#3A3A3A',
         pocket: false, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: false, standAngle: 20, standWidth: 30, standLength: 0,
       },
     },
@@ -540,7 +540,7 @@
     s.frame.border = Math.max(1, +el.frameBorder.value || 10);
     s.frame.lip = Math.max(0.5, +el.frameLip.value || 1);
     s.frame.depth = Math.max(1, +el.frameDepth.value || 15);
-    s.frame.lipDepth = Math.max(0.5, +el.frameLipDepth.value || 13);
+    s.frame.lipDepth = Math.max(0.5, +el.frameLipDepth.value || 10);
     s.frame.clearance = Math.max(0, +el.frameClearance.value || 0);
     s.frame.color = el.frameColor.value;
     s.frame.pocket = el.framePocket.checked;
