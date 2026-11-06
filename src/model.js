@@ -139,12 +139,16 @@
   // l + count * tile, where count is more than any label. trim pixels are left out along every
   // edge where two tiles meet, and none along the outside. Returns { labels, tiles: [{ row, col,
   // x0, x1, y0, y1 }] } with tiles numbered row by row from the top left, in grid pixels.
-  // joints (pixels, optional) adds jigsaw joints along the cuts: see addJoints.
-  function tileLabels(labels, W, H, cols, rows, count, trim, joints) {
+  // joints (pixels, optional) adds jigsaw joints along the cuts: see addJoints. edges
+  // (optional) { xs, ys } gives the cuts, each list running from 0 to W or H, in place of
+  // evenly spaced ones.
+  function tileLabels(labels, W, H, cols, rows, count, trim, joints, edges) {
     const t = trim || 0;
-    const xs = [], ys = [];
-    for (let k = 0; k <= cols; k++) xs.push(Math.round(k * W / cols));
-    for (let k = 0; k <= rows; k++) ys.push(Math.round(k * H / rows));
+    const xs = edges ? edges.xs : [], ys = edges ? edges.ys : [];
+    if (!edges) {
+      for (let k = 0; k <= cols; k++) xs.push(Math.round(k * W / cols));
+      for (let k = 0; k <= rows; k++) ys.push(Math.round(k * H / rows));
+    }
     const tiles = [];
     const owner = new Int16Array(W * H).fill(-1); // which tile each pixel belongs to
     for (let row = 0; row < rows; row++) {

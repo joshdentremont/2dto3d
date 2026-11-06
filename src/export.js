@@ -115,6 +115,16 @@
     return fflate.zipSync(files, { level: 6 });
   }
 
+  // ZIP of a frame cut into pieces: an STL per piece, and one of all its butterfly keys. Pieces
+  // are numbered as seen from the back, and named by row and column as seen from the front,
+  // which swaps the columns round; cols is how many there are.
+  function frameZip(pieces, keys, baseName, cols) {
+    const files = {};
+    for (const p of pieces) files[`${baseName}-frame-row${p.row + 1}-col${cols - p.col}.stl`] = stl([p.mesh]);
+    if (keys) files[`${baseName}-frame-keys.stl`] = stl([keys]);
+    return fflate.zipSync(files, { level: 6 });
+  }
+
   function safeName(s) {
     return String(s).trim().replace(/[^\w\-]+/g, '_').replace(/^_+|_+$/g, '') || 'part';
   }
@@ -130,5 +140,5 @@
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   }
 
-  L3D.exporters = { stl, threeMF, stlZip, tilesZip, download, safeName };
+  L3D.exporters = { stl, threeMF, stlZip, tilesZip, frameZip, download, safeName };
 })(globalThis.L3D = globalThis.L3D || {});

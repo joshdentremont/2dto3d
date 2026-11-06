@@ -57,6 +57,19 @@
   const STAND_REACH = 0.35;
   const STAND_MIN_REACH = 30;
 
+  // Butterfly keys, joining a frame cut into pieces, in mm. A key has square shoulders, so the
+  // smoothing that rounds slanted edges leaves its pocket exactly as cut: two ends KEY_END wide
+  // on a neck KEY_WAIST wide and KEY_NECK long, KEY_LENGTH long in all, across the cut. Where the
+  // border is narrow it's one of KEY_SCALES of that size. Its pocket is as deep as the stand's
+  // slot and is cut to whole pixels; the key is STAND_FIT smaller all round than the pocket,
+  // and KEY_SHORT less than its depth, so it sits just below the back.
+  const KEY_LENGTH = 16;
+  const KEY_NECK = 6;
+  const KEY_END = 8;
+  const KEY_WAIST = 4;
+  const KEY_SCALES = [1, 0.85, 0.7, 0.5];
+  const KEY_SHORT = 0.3;
+
   // Border width and frame depth (mm) the stand's slot needs.
   const standBorder = () => STAND_THICK + 2 * STAND_FIT + 2 * POCKET_WALL;
   const standDepth = () => STAND_MIN_SOCKET + SKIN;
@@ -235,6 +248,119 @@
     return null;
   }
 
+  // Where to cut a frame into pieces, and a butterfly key pocket on each join. sp (pixels):
+  // { cols, rows, keys (false = no room for them), length, neck, end, waist, wall, keepOut }.
+  // Cuts are evenly spread over the frame, but up and down cuts keep keepOut pixels from its
+  // centre line, clear of a hanging pocket or stand slot there. Each place a cut crosses the
+  // wall gets a pocket, centred on the wall, wherever `wall` pixels of wall are left around it.
+  // Returns { xs, ys, keys: [{ length, neck, end, waist }], missed }: xs and ys are the pieces'
+  // edges, keys gives each pocket's half sizes in whole pixels, and missed counts joins with no
+  // room for a key.
+  function cutKeys(grid, W, H, sp) {
+    let x0 = W, x1 = -1, y0 = H, y1 = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (grid[y * W + x] < 0) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    const cx = (x0 + x1 + 1) / 2;
+    const edges = (n, lo, hi, size, keep) => {
+      const e = [0];
+      for (let k = 1; k < n; k++) {
+        let at = Math.round(lo + k * (hi - lo) / n);
+        if (keep && Math.abs(at - cx) < keep) at = Math.round(cx + (at >= cx ? keep : -keep));
+        e.push(at);
+      }
+      e.push(size);
+      return e;
+    };
+    const xs = edges(sp.cols, x0, x1 + 1, W, sp.keepOut), ys = edges(sp.rows, y0, y1 + 1, H, 0);
+
+    const keys = [];
+    let missed = 0;
+    const toOther = distanceSq(Uint8Array.from(grid, v => (v === 1 ? 0 : 1)), W, H);
+    const limit = (sp.wall + 1) * (sp.wall + 1);
+    // A pocket on the cut at `line`, centred `centre` along it, at the largest size that fits.
+    // Its edges are on pixel edges: half sizes in whole pixels, either side of the cut and of
+    // a centre rounded to a pixel edge.
+    const place = (vertical, line, centre) => {
+      if (!sp.keys) { missed++; return; }
+      const mid = Math.round(centre);
+      for (const s of KEY_SCALES) {
+        const size = {
+          length: Math.round(sp.length * s / 2), neck: Math.round(sp.neck * s / 2),
+          end: Math.round(sp.end * s / 2), waist: Math.round(sp.waist * s / 2),
+        };
+        if (size.neck >= size.length || size.waist >= size.end || size.waist < 1) continue;
+        const cells = [];
+        let ok = true;
+        for (let du = -size.length; du < size.length && ok; du++) {
+          const half = du >= -size.neck && du < size.neck ? size.waist : size.end;
+          for (let dv = -half; dv < half; dv++) {
+            const across = line + du, along = mid + dv;
+            const x = vertical ? across : along, y = vertical ? along : across;
+            if (x < 0 || y < 0 || x >= W || y >= H || toOther[y * W + x] < limit) { ok = false; break; }
+            cells.push(y * W + x);
+          }
+        }
+        if (!ok) continue;
+        for (const p of cells) grid[p] = SOCKET;
+        keys.push(size);
+        return;
+      }
+      missed++;
+    };
+    // Runs of wall along each cut. One too short to hold a key is too short to need one.
+    const shortest = 3 * sp.wall;
+    const along = (vertical, line, size) => {
+      let start = -1;
+      for (let k = 0; k <= size; k++) {
+        const a = vertical ? k * W + line - 1 : (line - 1) * W + k, b = vertical ? k * W + line : line * W + k;
+        const wall = k < size && grid[a] === 1 && grid[b] === 1;
+        if (wall && start < 0) start = k;
+        if (!wall && start >= 0) {
+          if (k - start >= shortest) place(vertical, line, (start + k) / 2);
+          start = -1;
+        }
+      }
+    };
+    for (let k = 1; k < sp.cols; k++) along(true, xs[k], H);
+    for (let k = 1; k < sp.rows; k++) along(false, ys[k], W);
+    return { xs, ys, keys, missed };
+  }
+
+  // Butterfly keys laid out in rows up to KEY_ROW mm long, to print flat, `thick` mm thick: one
+  // for each pocket in `list` (half sizes in pixels, from cutKeys), STAND_FIT smaller all round.
+  // scale = mm per pixel.
+  const KEY_ROW = 120;
+  function buildKeys(list, thick, scale) {
+    const positions = [], indices = [];
+    let at = 0, row = 0, rowDepth = 0;
+    for (const size of list) {
+      const L = size.length * scale - STAND_FIT, A = size.neck * scale + STAND_FIT;
+      const E = size.end * scale - STAND_FIT, N = size.waist * scale - STAND_FIT;
+      if (at + 2 * L > KEY_ROW && at > 0) { at = 0; row += rowDepth + 4; rowDepth = 0; }
+      const base = positions.length / 3;
+      // Corners anticlockwise from the bottom left: an end, the neck, the other end.
+      const outline = [[-L, -E], [-A, -E], [-A, -N], [A, -N], [A, -E], [L, -E], [L, E], [A, E], [A, N], [-A, N], [-A, E], [-L, E]];
+      for (const z of [0, thick]) for (const [x, y] of outline) positions.push(at + L + x, row + E + y, z);
+      // The left end, the neck and the right end, each fanned from a corner.
+      const caps = [[0, 1, 2], [0, 2, 9], [0, 9, 10], [0, 10, 11], [2, 3, 8], [2, 8, 9], [5, 6, 7], [5, 7, 8], [5, 8, 3], [5, 3, 4]];
+      for (const [p, q, r] of caps) indices.push(base + p + 12, base + q + 12, base + r + 12, base + p, base + r, base + q);
+      for (let i = 0; i < 12; i++) {
+        const j = (i + 1) % 12;
+        indices.push(base + i, base + j, base + j + 12, base + i, base + j + 12, base + i + 12);
+      }
+      at += 2 * L + 4;
+      rowDepth = Math.max(rowDepth, 2 * E);
+    }
+    return { positions: Float32Array.from(positions), indices: Uint32Array.from(indices) };
+  }
+
   // Adds retaining bumps to the lip around the inside of the recess, side by side: top,
   // bottom, left and right of each outline. reach = how far a bump comes out from the wall,
   // width = its width, longSide = side length above which a side gets two, clearance = gap
@@ -338,6 +464,7 @@
       cutPocket(out, NW, NH, opts.pocketRadius, opts.pocketRise, opts.pocketWall || 0);
     const socket = opts.socketWidth > 0 ? cutSocket(out, NW, NH, opts.socketWidth, opts.socketMinWidth,
       opts.socketStep, opts.socketThick, opts.socketWall, opts.border) : null;
+    const cuts = opts.split ? cutKeys(out, NW, NH, opts.split) : null;
     if (opts.bumpReach > 0) addBumps(out, recess, NW, NH, opts.bumpReach, opts.bumpWidth, opts.bumpLongSide, opts.clearance);
     if (opts.outerRadius > 0 || opts.innerRadius > 0) {
       const outside = new Uint8Array(NW * NH), opening = new Uint8Array(NW * NH);
@@ -358,7 +485,7 @@
         out[i] += KINDS * Math.round(back / opts.roundStep);
       }
     }
-    return { labels: out, W: NW, H: NH, pocketCut, socket };
+    return { labels: out, W: NW, H: NH, pocketCut, socket, cuts };
   }
 
   // The frame, as { mesh, pocket, bumps, stand }. pocket is 'none', 'ok', 'thin' (frame too
@@ -368,6 +495,11 @@
   // in mm: frameDepth (front to back), lipDepth (back of the frame to the lip), printDepth,
   // head (0 = no pocket), pocketDepth (0 = as deep as possible), outerRadius and innerRadius
   // (0 = square edge). stand: true cuts a slot for a stand, standWidth wide if that fits.
+  // split: { bedWidth, bedDepth } cuts a frame too big for that bed into pieces joined by
+  // butterfly keys; then mesh is null, and pieces lists them as { row, col, offset, mesh }, each
+  // centred on x/y = 0 with offset being where it sits in the frame, seen from the back. keys
+  // is a mesh of the keys to print, or null, keysMissed counts joins without room for one, and
+  // keyRoom says whether the frame is deep enough for any. height is the frame's height (mm).
   // scale = mm per pixel.
   function buildFrame(labels, W, H, opts, scale) {
     const total = opts.frameDepth, lipTop = total - opts.lipDepth;
@@ -379,6 +511,25 @@
     const socketDepth = Math.min(STAND_SOCKET, maxPocketDepth(total));
     const socketRoom = socketDepth >= STAND_MIN_SOCKET - 1e-6;
     const standWidth = opts.standWidth || STAND_WIDTH;
+    const rings = Math.ceil(Math.max(outerRadius, innerRadius) / ROUND_STEP) + 1;
+
+    // Pieces to fit the bed, if asked for and needed. Every piece has its own labels, which
+    // have to fit the label grid.
+    const reach = opts.border + opts.clearance;
+    let split = null;
+    if (opts.split) {
+      const cols = L3D.model.tilesFor(W * scale + 2 * reach, opts.split.bedWidth);
+      const rows = L3D.model.tilesFor(H * scale + 2 * reach, opts.split.bedDepth);
+      if (cols * rows > 1 && KINDS * rings * cols * rows <= 32767) {
+        let keep = 0;
+        if (head > 0 && room) keep = (head + HEAD_CLEARANCE) / 2 + POCKET_WALL;
+        if (opts.stand && socketRoom) keep = Math.max(keep, standWidth / 2 + STAND_FIT + POCKET_WALL);
+        split = {
+          cols, rows, keys: socketRoom, length: KEY_LENGTH / scale, neck: KEY_NECK / scale, end: KEY_END / scale, waist: KEY_WAIST / scale,
+          wall: POCKET_WALL / scale, keepOut: keep ? (keep + KEY_LENGTH / 2 + POCKET_WALL) / scale : 0,
+        };
+      }
+    }
     const grid = frameGrid(labels, W, H, {
       border: opts.border / scale, lip: opts.lip / scale, clearance: opts.clearance / scale,
       pocketRadius: head > 0 && room ? (head + HEAD_CLEARANCE) / 2 / scale : 0,
@@ -389,8 +540,8 @@
       bumpReach: bumps ? (opts.clearance + BUMP_OVERLAP) / scale : 0,
       bumpWidth: BUMP_WIDTH / scale, bumpLongSide: BUMP_LONG_SIDE / scale,
       outerRadius: outerRadius / scale, innerRadius: innerRadius / scale, roundStep: ROUND_STEP / scale,
+      split,
     });
-    const g = L3D.contours.trace(grid.labels, grid.W, grid.H, { smooth: opts.smooth });
 
     const deepest = maxPocketDepth(total);
     const pocketDepth = Math.min(deepest, Math.max(RETAIN + MIN_GAP, opts.pocketDepth || deepest));
@@ -407,7 +558,6 @@
 
     // Every kind of column at every set-back of the rounded edges. A pocket's or slot's floor
     // moves back with the front face, so that SKIN of frame always stays in front of it.
-    const rings = Math.ceil(Math.max(outerRadius, innerRadius) / ROUND_STEP) + 1;
     const layers = [];
     for (let ring = 0; ring < rings; ring++) {
       const front = Math.round(ring * ROUND_STEP * 1e4) / 1e4;
@@ -418,7 +568,25 @@
         }).filter(([p, q]) => q > p + 1e-6);
       });
     }
-    const mesh = L3D.mesh.buildLayers(g, layers, scale);
+
+    // One mesh, or one per piece from a single trace, so that pieces share their cut faces.
+    let mesh = null, pieces = null, keys = null, keysMissed = 0;
+    if (grid.cuts) {
+      const count = KINDS * rings;
+      const cut = L3D.model.tileLabels(grid.labels, grid.W, grid.H, split.cols, split.rows, count, 0, null, grid.cuts);
+      const g = L3D.contours.trace(cut.labels, grid.W, grid.H, { smooth: opts.smooth });
+      pieces = [];
+      cut.tiles.forEach((t, k) => {
+        const view = L3D.model.tileGraph(g, k, count);
+        if (!view) return;
+        const x = ((t.x0 + t.x1) / 2 - grid.W / 2) * scale, y = (grid.H / 2 - (t.y0 + t.y1) / 2) * scale;
+        pieces.push({ row: t.row, col: t.col, offset: [x, y], mesh: L3D.model.moved(L3D.mesh.buildLayers(view, layers, scale), -x, -y) });
+      });
+      if (grid.cuts.keys.length) keys = buildKeys(grid.cuts.keys, socketDepth - KEY_SHORT, scale);
+      keysMissed = grid.cuts.missed;
+    } else {
+      mesh = L3D.mesh.buildLayers(L3D.contours.trace(grid.labels, grid.W, grid.H, { smooth: opts.smooth }), layers, scale);
+    }
     const pocket = !head ? 'none' : !room ? 'thin' : grid.pocketCut ? 'ok' : 'border';
     const stand = { fit: !opts.stand ? 'none' : !socketRoom ? 'thin' : grid.socket ? 'ok' : 'border' };
     if (grid.socket) {
@@ -426,7 +594,10 @@
       stand.rise = grid.socket.rise * scale;
       stand.depth = socketDepth;
     }
-    return { mesh, pocket, bumps, stand };
+    return {
+      mesh, pieces, cols: pieces ? split.cols : 1, rows: pieces ? split.rows : 1, keys, keysMissed, keyRoom: socketRoom,
+      pocket, bumps, stand, height: H * scale + 2 * reach,
+    };
   }
 
   // The stand: a strip bent by the lean angle, printed on its side. Seen from the side, a long
@@ -470,5 +641,5 @@
     return { frameZ: frameDepth + lift, printZ: lipDepth - printDepth + lift };
   }
 
-  L3D.frame = { assembled, distanceSq, frameGrid, buildFrame, buildStand, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth, standBorder, standDepth, standReach, minLean, minReach };
+  L3D.frame = { assembled, distanceSq, frameGrid, buildFrame, buildStand, buildKeys, pocketBorder, pocketThickness, maxPocketDepth, maxInnerRadius, bumpDepth, standBorder, standDepth, standReach, minLean, minReach };
 })(globalThis.L3D = globalThis.L3D || {});

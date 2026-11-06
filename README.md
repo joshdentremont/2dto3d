@@ -197,6 +197,23 @@ It only routes containers that opt in with `traefik.enable=true`.
        1 mm). It has to fit on the lip, so it's limited to the lip overlap plus the fit
        clearance, and it leaves at least 0.2 mm of lip thickness at the opening;
      - **Fit clearance**: the gap between the print and the recess (default 0.3 mm);
+     - **Split to fit the bed**: a frame too big for your bed is cut into as few pieces as fit,
+       with 5 mm spare on each side, joined by butterfly keys. Each place a cut crosses the
+       frame's border gets a pocket in the back, across the join, and a matching key. The keys
+       have square shoulders, not slanted sides, because outline smoothing would round slanted
+       sides and leave the pocket smaller than its key: two ends 8 mm wide and 5 mm long on a
+       neck 4 mm wide and 6 mm long, 16 mm in all, or smaller to fit a narrow border, with at
+       least 1 mm of frame around the pocket. The pockets are cut to whole pixels and are as
+       deep as the stand's slot, 8 mm, or less in a thin frame, keeping 1 mm of frame in front,
+       so nothing shows; each key is 0.15 mm smaller all round than its pocket and 0.3 mm
+       shorter than its depth. Up-and-down cuts keep
+       clear of the hanging pocket and the stand's slot at the centre. **Frame (.stl)** then
+       gives a ZIP with a file per piece, named by row and column as seen from the front, and
+       one with all the keys, laid out to print flat. Lay the pieces face down, press a key
+       into each pocket, with a little glue if they're loose, then fit the print as usual. The
+       frame must be at least 5 mm deep for keys; without them, or where a join has no room
+       for one, the app says to glue it. **Assembled** shows the pieces back together. This
+       isn't offered with **One frame per tile**, whose frames are each sized to their tile.
      - **Hanging pocket**: a pocket in the back of the top border, close to the top edge, for
        hanging on a nail or screw. It doesn't go through to the front, so nothing shows. Set
        the **Head diameter** of the nail or screw. Push the head into the round opening, then lower the frame: a thin lip at the

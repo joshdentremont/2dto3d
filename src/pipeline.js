@@ -20,8 +20,10 @@
     // where trim is how much (mm) was cut away along each edge where two tiles meet,
     // with each tile centred on x/y = 0 and offset being where it sits in the whole print.
     // frame.pieces lists the frames as { row, col, mesh, stand }: one, or one per tile when
-    // frame.perTile, each centred like its tile. frame.mesh and frame.stand are the one frame's,
-    // or null when per tile.
+    // frame.perTile, each centred like its tile, or with frame.split the pieces of one frame,
+    // each with an offset (seen from the back), joined by frame.keys and laid out frame.cols by
+    // frame.rows. frame.mesh is the one frame's, or null when per tile or split. frame.stand
+    // is the one frame's stand, or null when per tile.
     // openEdges is null if the model is too big to check. All of it can be posted between threads.
     function run(job) {
       const { gw, gh, scale, capped, borderMm, palette, settings: s } = job;
@@ -203,10 +205,10 @@
         // One frame, with its stand, around the grid given. Its messages go in `notes`, so
         // each is given once however many frames it applies to.
         const notes = new Set();
-        const makeFrame = (key, labels, W, H) => {
+        const makeFrame = (key, labels, W, H, split) => {
           let built = cache.frames.get(key);
           if (!built) {
-            built = L3D.frame.buildFrame(labels, W, H, opts, scale);
+            built = L3D.frame.buildFrame(labels, W, H, split ? Object.assign({ split }, opts) : opts, scale);
             cache.frames.set(key, built);
           }
           if (built.pocket === 'border') {
@@ -220,7 +222,7 @@
           // The stand is sized to its slot, so it's left out along with the slot.
           let stand = null, standLength = 0;
           if (built.stand.fit === 'ok') {
-            const box = L3D.mesh.bounds([built.mesh]), frameHeight = box.max[1] - box.min[1];
+            const frameHeight = built.height;
             stand = L3D.frame.buildStand(Object.assign({ angle: f.standAngle, frameHeight, reach: f.standLength }, built.stand));
             standLength = L3D.frame.standReach(frameHeight);
             if (built.stand.width < f.standWidth - 0.01) notes.add(`The stand was narrowed to ${built.stand.width.toFixed(1)} mm, the widest that fits in the bottom of the frame.`);
@@ -236,19 +238,29 @@
           } else if (built.stand.fit === 'thin') {
             notes.add(`The frame is too thin for the stand's slot, so the stand was left out. It needs a frame depth of at least ${L3D.frame.standDepth()} mm.`);
           }
-          return { mesh: built.mesh, stand, standLength, bumps: built.bumps };
+          if (built.pieces && !built.keyRoom) {
+            notes.add(`The frame is too thin for butterfly keys, so glue its pieces together. Keys need a frame depth of at least ${L3D.frame.standDepth()} mm.`);
+          } else if (built.pieces && built.keysMissed) {
+            notes.add(`${built.keysMissed === 1 ? 'One join' : built.keysMissed + ' joins'} in the frame ${built.keysMissed === 1 ? 'has' : 'have'} no room for a butterfly key, so glue ${built.keysMissed === 1 ? 'it' : 'them'}. A wider border makes room.`);
+          }
+          return { mesh: built.mesh, stand, standLength, bumps: built.bumps, split: built.pieces, cols: built.cols, rows: built.rows, keys: built.keys };
         };
 
-        // A tile's frame is centred on the tile, as the tile is.
+        // A tile's frame is centred on the tile, as the tile is. One frame for the whole print
+        // can be cut into pieces to fit the bed.
         const fg = cache.finalGrid;
         const perTile = !!f.perTile && !!tiles && tiles.list.length > 1;
+        const splitFor = !perTile && f.split ? { bedWidth: s.bedWidth, bedDepth: s.bedDepth } : null;
+        const one = perTile ? null : makeFrame('whole|' + (splitFor ? s.bedWidth + 'x' + s.bedDepth : ''), fg.labels, fg.W, fg.H, splitFor);
         const pieces = perTile
           ? tiles.list.map((t, k) => {
             const c = cells[k], w = c.x1 - c.x0, h = c.y1 - c.y0, labels = new Int16Array(w * h);
             for (let y = 0; y < h; y++) labels.set(fg.labels.subarray((c.y0 + y) * fg.W + c.x0, (c.y0 + y) * fg.W + c.x1), y * w);
-            return Object.assign({ row: t.row, col: t.col }, makeFrame(`${cache.tileKey}|${t.row},${t.col}`, labels, w, h));
+            return Object.assign({ row: t.row, col: t.col }, makeFrame(`${cache.tileKey}|${t.row},${t.col}`, labels, w, h, null));
           })
-          : [Object.assign({ row: 0, col: 0 }, makeFrame('whole', fg.labels, fg.W, fg.H))];
+          : one.split
+            ? one.split.map(p => ({ row: p.row, col: p.col, offset: p.offset, mesh: p.mesh, stand: null, standLength: one.standLength, bumps: one.bumps }))
+            : [Object.assign({ row: 0, col: 0 }, one)];
         warnings.push(...notes);
         const bumps = pieces.every(p => p.bumps);
         if (printDepth > lipDepth) {
@@ -256,9 +268,11 @@
         } else if (!bumps) {
           warnings.push(`There's no room for the bumps that hold the print in, so it will need glue or tape. A lip depth over ${L3D.frame.bumpDepth(printDepth).toFixed(1)} mm leaves room for them.`);
         }
+        const split = !!(one && one.split);
         frame = {
-          mesh: perTile ? null : pieces[0].mesh, stand: perTile ? null : pieces[0].stand,
-          standLength: pieces[0].standLength, bumps, perTile, pieces, depth: f.depth, lipDepth, printDepth,
+          mesh: perTile || split ? null : one.mesh, stand: one ? one.stand : null,
+          standLength: (one || pieces[0]).standLength, bumps, perTile, split, cols: split ? one.cols : 1, rows: split ? one.rows : 1,
+          keys: split ? one.keys : null, pieces, depth: f.depth, lipDepth, printDepth,
         };
       }
 
@@ -284,6 +298,9 @@
       if (frame && frame.perTile) {
         checkEach(frame.pieces, p => `frame for the tile in ${where(p)}`, p => [p.mesh]);
         checkEach(frame.pieces, p => `stand for the tile in ${where(p)}`, p => (p.stand ? [p.stand] : []));
+      } else if (frame && frame.split) {
+        checkEach(frame.pieces, p => `frame piece in ${where(p)}`, p => [p.mesh]);
+        if (frame.stand) checkBed('stand', [frame.stand]);
       } else if (frame) {
         checkBed('frame', [frame.mesh]);
         if (frame.stand) checkBed('stand', [frame.stand]);
@@ -293,6 +310,7 @@
       if (model.parts.reduce((a, p) => a + p.mesh.indices.length / 3, 0) <= CHECK_LIMIT) {
         const meshes = model.parts.map(p => p.mesh).concat(model.body);
         if (frame) for (const p of frame.pieces) meshes.push(p.mesh, ...(p.stand ? [p.stand] : []));
+        if (frame && frame.split) meshes.push(...(frame.stand ? [frame.stand] : []), ...(frame.keys ? [frame.keys] : []));
         if (tiles) for (const t of tiles.list) meshes.push(...t.parts.map(p => p.mesh), t.body);
         openEdges = meshes.reduce((a, mesh) => a + L3D.mesh.openEdges(mesh), 0);
       }

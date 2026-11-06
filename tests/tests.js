@@ -1001,6 +1001,97 @@
       results.push(res);
     }
 
+    // A frame cut into pieces, joined by butterfly keys.
+    {
+      const res = { name: 'frame in pieces', errors: [] };
+      const F = L3D.frame, M = L3D.mesh;
+      const W = 400, H = 200, scale = 0.5; // a 200 x 100 mm print: a 220.6 x 120.6 mm frame
+      const solid = new Int16Array(W * H);
+      const base = { border: 10, lip: 1, clearance: 0.3, frameDepth: 15, lipDepth: 10, printDepth: 2, smooth: true, outerRadius: 1, innerRadius: 1 };
+      const whole = F.buildFrame(solid, W, H, base, scale);
+      const cut = F.buildFrame(solid, W, H, Object.assign({ split: { bedWidth: 150, bedDepth: 256 } }, base), scale);
+      if (whole.pieces || !whole.mesh) res.errors.push('split without asking');
+      if (!cut.pieces || cut.pieces.length !== 2 || cut.cols !== 2 || cut.rows !== 1 || cut.mesh) res.errors.push(`${cut.pieces && cut.pieces.length} pieces, ${cut.cols} x ${cut.rows}`);
+      else {
+        for (const p of cut.pieces) if (M.openEdges(p.mesh)) res.errors.push(`piece ${p.col}: ${M.openEdges(p.mesh)} open edges`);
+        // One key across each of the two places the cut crosses the border, top and bottom.
+        if (!cut.keys || M.openEdges(cut.keys) || cut.keysMissed) res.errors.push(`keys: ${cut.keysMissed} missed`);
+        const keyCount = cut.keys ? cut.keys.positions.length / 3 / 24 : 0;
+        if (keyCount !== 2) res.errors.push(`${keyCount} keys`);
+        // Each pocket is 104 mm² (two 5 x 8 mm ends on a 6 x 4 mm neck), with its floor 8 mm
+        // below the back. The keys are 0.15 mm smaller all round, so slightly smaller in area.
+        const flat = (meshes, z, up) => meshes.reduce((a, m) => {
+          const p = m.positions, t = m.indices;
+          for (let k = 0; k < t.length; k += 3) {
+            const [A, B, C] = [3 * t[k], 3 * t[k + 1], 3 * t[k + 2]];
+            if ([A, B, C].some(i => Math.abs(p[i + 2] - z) > 1e-4)) continue;
+            const nz = ((p[B] - p[A]) * (p[C + 1] - p[A + 1]) - (p[C] - p[A]) * (p[B + 1] - p[A + 1])) / 2;
+            if ((nz > 0) === up) a += Math.abs(nz);
+          }
+          return a;
+        }, 0);
+        const floors = flat(cut.pieces.map(p => p.mesh), 7, true), keyArea = cut.keys ? flat([cut.keys], 0, false) : 0;
+        if (Math.abs(floors - 208) > 0.5) res.errors.push(`pocket floors ${floors} mm², expected 208`);
+        if (!(keyArea < floors && keyArea > floors * 0.9)) res.errors.push(`pockets ${floors} mm², keys ${keyArea} mm²`);
+        // The pieces hold the same material as the whole frame, less the pockets, give or take
+        // the smoothing pausing where a cut crosses an edge.
+        const sum = cut.pieces.reduce((v, p) => v + M.volume(p.mesh), 0);
+        if (Math.abs(sum + 208 * 8 - M.volume(whole.mesh)) > M.volume(whole.mesh) * 0.005) res.errors.push(`pieces ${sum} mm³, whole ${M.volume(whole.mesh)} mm³`);
+        // Each piece is no bigger than the bed, and the key is a bowtie, narrower in the middle.
+        for (const p of cut.pieces) {
+          const b = M.bounds([p.mesh]);
+          if (b.max[0] - b.min[0] > 140) res.errors.push(`piece ${p.col} is ${b.max[0] - b.min[0]} mm wide`);
+        }
+        const kb = M.bounds([cut.keys]);
+        if (Math.abs(kb.max[2] - (8 - 0.3)) > 1e-4) res.errors.push(`keys are ${kb.max[2]} mm thick`);
+        // Put back where they go, the pieces cover the same area as the whole frame.
+        const span = cut.pieces.map(p => { const b = M.bounds([p.mesh]); return [b.min[0] + p.offset[0], b.max[0] + p.offset[0]]; });
+        const wb = M.bounds([whole.mesh]);
+        if (Math.abs(Math.min(...span.map(s => s[0])) - wb.min[0]) > 0.01 || Math.abs(Math.max(...span.map(s => s[1])) - wb.max[0]) > 0.01) res.errors.push(`pieces span ${span}`);
+      }
+      // Fits the bed: no split.
+      const fits = F.buildFrame(solid, W, H, Object.assign({ split: { bedWidth: 256, bedDepth: 256 } }, base), scale);
+      if (fits.pieces || !fits.mesh) res.errors.push('split a frame that fits');
+      // The cut keeps clear of a hanging pocket and stand slot at the centre, which stay whole.
+      const both = F.buildFrame(solid, W, H, Object.assign({ split: { bedWidth: 150, bedDepth: 256 }, head: 5, stand: true }, base), scale);
+      if (both.pocket !== 'ok' || both.stand.fit !== 'ok' || !both.pieces) res.errors.push(`pocket ${both.pocket}, stand ${both.stand.fit}`);
+      else {
+        for (const p of both.pieces) if (M.openEdges(p.mesh)) res.errors.push('open edges beside the pocket');
+        const edges = both.pieces.map(p => { const b = M.bounds([p.mesh]); return b.max[0] - b.min[0]; });
+        if (Math.abs(edges[0] - edges[1]) < 20) res.errors.push(`the cut stayed at the centre: pieces ${edges}`);
+      }
+      // A thin frame: pieces but no keys. A narrow border: smaller keys.
+      const thin = F.buildFrame(solid, W, H, Object.assign({ split: { bedWidth: 150, bedDepth: 256 } }, base, { frameDepth: 4, lipDepth: 3 }), scale);
+      if (!thin.pieces || thin.keys || thin.keyRoom || thin.keysMissed !== 2) res.errors.push(`thin frame: ${thin.keys}, ${thin.keysMissed}`);
+      const narrow = F.buildFrame(solid, W, H, Object.assign({ split: { bedWidth: 130, bedDepth: 256 } }, base, { border: 6 }), scale);
+      if (!narrow.keys || narrow.keysMissed) res.errors.push(`narrow border keys: ${narrow.keysMissed} missed`);
+      else if (M.bounds([narrow.keys]).max[1] > 7.5) res.errors.push('narrow border keys are full size');
+
+      // Through the pipeline: warnings, checks and the export.
+      const gw = 400, gh = 200, image = new Uint8ClampedArray(gw * gh * 4).fill(255);
+      const palette = [{ id: 1, rgb: [255, 255, 255], filament: '#FFFFFF', name: 'White', none: false, height: 1 }];
+      const settings = over => Object.assign({
+        mode: 'flat', thickness: 2, layerHeight: 0.2, smooth: true, speckMm2: 0, bedWidth: 150, bedDepth: 256,
+        base: { type: 'none', thickness: 1, colorId: null }, loop: { on: false, side: 'top', outer: 10, hole: 5, colorId: null },
+        outline: { shape: 'none', square: false, radius: 5, colorId: null }, border: { on: false, width: 2, height: 3, colorId: null },
+        tiles: { on: false, cols: 0, rows: 0 },
+        frame: { on: true, perTile: false, split: true, tileTrim: null, tileGap: 10, border: 10, lip: 1, depth: 15, lipDepth: 10, clearance: 0.3,
+          pocket: true, head: 5, pocketDepth: 0, outerRadius: 1, innerRadius: 1, stand: true, standAngle: 20, standWidth: 30, standLength: 0 },
+      }, over);
+      const run = s => L3D.pipeline.create().run({ gw, gh, scale, capped: false, borderMm: 0, palette, settings: settings(s), image });
+      const r = run({});
+      if (!r.frame.split || r.frame.pieces.length !== 2 || !r.frame.keys || !r.frame.stand || r.openEdges !== 0) res.errors.push(`pipeline: ${r.frame.pieces.length} pieces, ${r.openEdges} open edges`);
+      if (r.warnings.some(w => /frame.*too big/.test(w))) res.errors.push(`pieces too big: ${r.warnings}`);
+      const names = Object.keys(fflate.unzipSync(L3D.exporters.frameZip(r.frame.pieces, r.frame.keys, 'logo', r.frame.cols))).sort().join();
+      if (names !== 'logo-frame-keys.stl,logo-frame-row1-col1.stl,logo-frame-row1-col2.stl') res.errors.push(`names ${names}`);
+      const thinRun = run({ frame: Object.assign({}, settings({}).frame, { depth: 4, lipDepth: 3, pocket: false, stand: false }) });
+      if (!thinRun.warnings.some(w => w.includes('too thin for butterfly keys'))) res.errors.push(`thin warning: ${thinRun.warnings}`);
+      // Off, or with per-tile frames: one frame each.
+      if (run({ frame: Object.assign({}, settings({}).frame, { split: false }) }).frame.split) res.errors.push('split when off');
+      res.ok = res.errors.length === 0;
+      results.push(res);
+    }
+
     // Jigsaw joints between tiles.
     {
       const res = { name: 'jigsaw joints', errors: [] };
